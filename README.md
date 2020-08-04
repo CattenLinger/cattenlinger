@@ -1,4 +1,9 @@
-### Hi there 👋
+### ME - CattenLinger - on GitHub
+
+ A lazy cat.
+ 
+- 🌎 Blog: (cattenlinger.github.io)[https://cattenlinger.github.io] (Chinese post.)
+- 🖥 Website: (shinonometn.com)[https://shinonometn.com] (Nothing just a page that it doesn't work.)
 
 <!--
 **CattenLinger/cattenlinger** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
