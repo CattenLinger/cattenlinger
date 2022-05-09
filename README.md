@@ -5,7 +5,7 @@
 - 🌎 Blog: [cattenlinger.github.io](https://cattenlinger.github.io) (Chinese post.)
 - 🖥 Website: [shinonometn.com](https://shinonometn.com) (Nothing just a page that it doesn't work.)
 
-[![Catten's Top Langs](https://github-readme-stats.vercel.app/api/top-langs/?username=CattenLinger&theme=github_light&hide=HTML)](https://github.com/anuraghazra/github-readme-stats)
+[![Catten's Top Langs](https://github-readme-stats.vercel.app/api/top-langs/?username=CattenLinger&theme=github_light&hide=HTML&layout=compact)](https://github.com/anuraghazra/github-readme-stats)
 
 <!--
 **CattenLinger/cattenlinger** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
