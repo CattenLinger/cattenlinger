@@ -105,8 +105,10 @@ prepare_workspace() {
   fi
 
   EXIT_HOOKS=": && rm -rf $BUILD_DIR/*.tmp "
-
+  DO_NOT_CLEANUP="$DO_NOT_CLEANUP"
   __clean_on_exit() {
+    [ b'true' == b"$DO_NOT_CLEANUP" ] && return 0
+    
     echo "Executing exit hook."
     eval "$EXIT_HOOKS"
   }

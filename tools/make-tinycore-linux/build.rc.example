@@ -28,6 +28,10 @@ TC_ARCH=x86_64
 CACHE_FILES=true
 
 ################################################################################################################################
+# Do not do clean up after build
+#DO_NOT_CLEANUP=true
+
+################################################################################################################################
 # PACKAGES is tcz package names that will be bundled into rootfs
 #          See the tinycorelinux repository
 #          Dependencies will be auto resolved
