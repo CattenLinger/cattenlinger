@@ -192,6 +192,8 @@ prepare_packages() {
     echo "Preparing ${#PACKAGES[@]} package(s)."
     resolve_packages
     download_and_unpack_packages
+    
+    EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/squashfs-root'"
 
     F_APPLY_PACKAGES='true'
   fi
@@ -210,8 +212,7 @@ apply_packages() {
   if [ b'true' == b"$F_APPLY_PACKAGES" ]
   then
     echo "Copying packages to rootfs."
-    cp -Rp "$BUILD_DIR/squashfs-root/usr/." "$BUILD_DIR/rootfs/usr/"
-    EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/squashfs-root'"
+    cp -Rpv "$BUILD_DIR/squashfs-root/usr/." "$BUILD_DIR/rootfs/usr/"
   fi
 }
 
