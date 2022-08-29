@@ -212,7 +212,7 @@ apply_packages() {
   if [ b'true' == b"$F_APPLY_PACKAGES" ]
   then
     echo "Copying packages to rootfs."
-    cp -Rpv "$BUILD_DIR/squashfs-root/usr/." "$BUILD_DIR/rootfs/usr/"
+    cp -Rp "$BUILD_DIR/squashfs-root/usr/." "$BUILD_DIR/rootfs/usr/"
   fi
 }
 
@@ -253,6 +253,7 @@ prepare_tinycore_linux_image
 prepare_packages
 
 extract_rootfs
+apply_packages
 
 apply_additional_patchs
 

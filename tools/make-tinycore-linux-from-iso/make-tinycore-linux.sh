@@ -264,6 +264,7 @@ prepare_packages
 copy_core_and_rootfs_from_iso
 extract_rootfs
 
+apply_packages
 apply_additional_patchs
 
 generate_new_rootfs
