@@ -12,6 +12,9 @@ TC_REPO="http://tinycorelinux.net/"
 PACKAGES=()
 CURL="curl -L -# --retry 10 --retry-all-errors --connect-timeout 5 --speed-limit 10 --speed-time 5"
 
+# Should cache downloaded files
+CACHE_FILES="$CACHE_FILES"
+
 require() {
   [ -z "$(command -v $1 2> /dev/null)" ] && {
     echo "Command $1 is required"
@@ -28,6 +31,9 @@ require zcat
 WORK_DIR="$(pwd)"
 echo "Will use '$WORK_DIR' as current dir"
 
+#
+# Tinycore Linux Properties
+#
 apply_tc_settings() {
   # See http://tinycorelinux.net/downloads.html
   TC_VERSION=$TC_VERSION
@@ -59,6 +65,9 @@ apply_tc_settings() {
   echo "Useing tinycore linux $TC_VERSION, arch $TC_ARCH"
 }
 
+#
+# Source the build.rc
+#
 apply_build_rc() {
   if [ -f "$WORK_DIR/build.rc" ]
   then
@@ -73,34 +82,62 @@ apply_build_rc() {
 }
 
 prepare_workspace() {
-  TMP_DIR="$WORK_DIR/tinycore.making"
+  BUILD_DIR="$WORK_DIR/build"
 
-  echo "Create work directory"
-  mkdir -v $TMP_DIR
+  if [ ! -d "$BUILD_DIR" ]
+  then
+    echo "Create build directory"
+    mkdir -v "$BUILD_DIR"
+  fi
+
+  EXIT_HOOKS=": "
+
   __clean_on_exit() {
-    echo "Cleaning up"
-    [ -d "$TMP_DIR/mnt" ] && umount "$TMP_DIR/mnt";
-    rm -rf "$TMP_DIR"
+    echo "Executing exit hook."
+    eval "$EXIT_HOOKS"
   }
 
   trap __clean_on_exit SIGINT SIGTERM SIGKILL EXIT
 }
 
-download_tinycore_linux_image() {
-  echo "Download tinycore image"
-  (cd "$TMP_DIR"; $CURL -O "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/$TC_IMAGE")
+prepare_tinycore_linux_image() {
+  local tcimage="$BUILD_DIR/$TC_IMAGE"
+  __delete_tinycore_linux_image() {
+    
+  }
+
+  if [ ! -f "$tcimage" ]
+  then
+    echo "Download tinycore image."
+    (cd "$BUILD_DIR"; $CURL -O "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/$TC_IMAGE")
+    [ b'true' == b"$CACHE_FILES" ] || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$tcimage'"
+  fi
+
+  echo "Using system image '$tcimage'."
 }
 
-download_packages() {
+prepare_packages() {
+  local packagedir="$BUILD_DIR/tcz"
+  
+  [ ! -d "$packagedir" ] && mkdir "$packagedir"
+  [ b'true' == b"$CACHE_FILES" ] || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$packagedir'"
+
+  [ ! -d ""]
+
   if [ 0 -lt "${#PACKAGES[@]}" ]
   then
-    echo "Downloading ${#PACKAGES[@]} package(s)."
+    echo "Preparing ${#PACKAGES[@]} package(s)."
     for i in ${PACKAGES[@]}
     do
-      ( 
-        cd "$TMP_DIR" ; 
+      [ ! -f "$packagedir/$i.tcz" ] || (
+        cd "$packagedir" ; 
         echo "Fetching package $i" ;
         $CURL -O "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.tcz" ;
+      )
+
+      ( 
+        echo "Unpacking $i";
+        cd "$BUILD_DIR";
         unsquashfs -f $i.tcz ;
         echo;
       )
@@ -110,30 +147,37 @@ download_packages() {
 }
 
 copy_core_and_rootfs_from_iso() {
-  mkdir "$TMP_DIR/mnt"
+  local mountpoint="$BUILD_DIR/mnt"
+  
+  mkdir "$mountpoint"
   echo "Mount ISO."
-  mount "$TMP_DIR/$TC_IMAGE" "$TMP_DIR/mnt" -o loop,ro
+  mount "$BUILD_DIR/$TC_IMAGE" "$mountpoint" -o loop,ro
   echo "Copy Linux core from ISO."
-  cp "$TMP_DIR/mnt/boot/$TC_CORE" "$TMP_DIR/vmlinuz"
+  cp "$mountpoint/boot/$TC_CORE" "$BUILD_DIR/vmlinuz"
+  EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/vmlinuz'"
   echo "Copy origin rootfs from ISO."
-  cp "$TMP_DIR/mnt/boot/$TC_ROOTFS" "$TMP_DIR/core.gz"
+  cp "$mountpoint/boot/$TC_ROOTFS" "$BUILD_DIR/core.gz"
+  EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/core.gz'"
 
-  echo "Copy resources finished. Unmount iso."
-  umount "$TMP_DIR/mnt"
-  rm -rf "$TMP_DIR/mnt"
+  echo "Copy resources finished. Unmount."
+  umount "$mountpoint"
+  rm -rf "$mountpoint"
 }
 
 extract_rootfs() {
+  local roorfs="$BUILD_DIR/rootfs"
   echo "Extracting rootfs..."
-  mkdir "$TMP_DIR/rootfs"
-  ( cd "$TMP_DIR/rootfs"; zcat "$TMP_DIR/core.gz" | cpio -idm )
+
+  mkdir "$roorfs"
+  ( cd "$roorfs"; zcat "$BUILD_DIR/core.gz" | cpio -idm )
 }
 
 apply_packages() {
   if [ b'true' == b"$F_APPLY_PACKAGES" ]
   then
     echo "Copying packages to rootfs."
-    cp -Rp "$TMP_DIR/squashfs-root/usr/" "$TMP_DIR/rootfs/"
+    cp -Rp "$BUILD_DIR/squashfs-root/usr/" "$BUILD_DIR/rootfs/"
+    EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/squashfs-root'"
   fi
 }
 
@@ -142,7 +186,7 @@ apply_additional_patchs() {
   then
     echo "Applying additional patchs."
     (
-      cd $TMP_DIR; 
+      cd $BUILD_DIR; 
       additional_patchs;
     )
   fi
@@ -151,12 +195,12 @@ apply_additional_patchs() {
 generate_new_rootfs() {
   # repackage core into output.gz
   echo "Generating new rootfs"
-  ( cd "$TMP_DIR/rootfs" ; find | cpio -o -H newc ) | gzip -c > "$WORK_DIR/rootfs.gz"
+  ( cd "$BUILD_DIR/rootfs" ; find | cpio -o -H newc ) | gzip -c > "$WORK_DIR/rootfs.gz"
 }
 
 copy_core() {
   echo "Copying Linux core"
-  cp "$TMP_DIR/vmlinuz" "$WORK_DIR/vmlinuz"
+  cp "$BUILD_DIR/vmlinuz" "$WORK_DIR/vmlinuz"
 }
 
 #
@@ -170,8 +214,9 @@ echo
 
 prepare_workspace
 
-download_tinycore_linux_image
-download_packages
+prepare_tinycore_linux_image
+prepare_packages
+
 copy_core_and_rootfs_from_iso
 extract_rootfs
 
