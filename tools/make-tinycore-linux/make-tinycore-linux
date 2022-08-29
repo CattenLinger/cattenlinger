@@ -210,7 +210,7 @@ apply_packages() {
   if [ b'true' == b"$F_APPLY_PACKAGES" ]
   then
     echo "Copying packages to rootfs."
-    cp -Rp "$BUILD_DIR/squashfs-root/usr/" "$BUILD_DIR/rootfs/"
+    cp -Rp "$BUILD_DIR/squashfs-root/usr/." "$BUILD_DIR/rootfs/usr/"
     EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/squashfs-root'"
   fi
 }
