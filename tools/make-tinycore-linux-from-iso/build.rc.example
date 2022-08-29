@@ -14,7 +14,8 @@ TC_ARCH=x86_64
 # WORK_DIR is the current dir
 # CURL     is the curl command
 
-export ALL_PROXY=http://127.0.0.1:7890
+# Cache files in build directory
+CACHE_FILES=true
 
 # tcz packages that will be bundled into rootfs
 # See the tinycorelinux repository
