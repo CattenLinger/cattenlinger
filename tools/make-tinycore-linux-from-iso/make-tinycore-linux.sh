@@ -102,10 +102,7 @@ prepare_workspace() {
 
 prepare_tinycore_linux_image() {
   local tcimage="$BUILD_DIR/$TC_IMAGE"
-  __delete_tinycore_linux_image() {
-    
-  }
-
+  
   if [ ! -f "$tcimage" ]
   then
     echo "Download tinycore image."
