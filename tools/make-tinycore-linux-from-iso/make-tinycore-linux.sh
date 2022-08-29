@@ -6,11 +6,24 @@ set -e
   exit 0
 }
 
-TC_REPO="http://tinycorelinux.net/"
+unset DOWNLOAD FETCH PACKAGES
+
+TC_REPO="$TC_REPO"
+[ -z "$TC_REPO" ] && TC_REPO="http://tinycorelinux.net/"
 
 #Packages to be pack in
+
 PACKAGES=()
-CURL="curl -L -# --retry 10 --retry-all-errors --connect-timeout 5 --speed-limit 10 --speed-time 5"
+CURL_DOWNLOAD="curl -L -# --retry 10 --retry-all-errors --connect-timeout 5 --speed-limit 10 --speed-time 5"
+DOWNLOAD() {
+  eval "$CURL_DOWNLOAD $@"
+}
+
+CURL_FETCH="curl -sf --retry 10 --connect-timeout 5 --speed-time 5"
+FETCH() {
+  eval "$CURL_FETCH $@"
+}
+
 
 # Should cache downloaded files
 CACHE_FILES="$CACHE_FILES"
@@ -30,6 +43,7 @@ require curl
 require unsquashfs
 require cpio
 require zcat
+require uniq
 
 WORK_DIR="$(pwd)"
 echo "Will use '$WORK_DIR' as current dir"
@@ -109,7 +123,7 @@ prepare_tinycore_linux_image() {
   if [ ! -f "$tcimage" ]
   then
     echo "Download tinycore image."
-    (cd "$BUILD_DIR"; $CURL "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/$TC_IMAGE" -o "$TC_IMAGE.tmp"; mv "$TC_IMAGE.tmp" "$TC_IMAGE")
+    (cd "$BUILD_DIR"; DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/$TC_IMAGE" -o "$TC_IMAGE.tmp"; mv "$TC_IMAGE.tmp" "$TC_IMAGE")
     cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$tcimage'"
   fi
 
@@ -117,32 +131,60 @@ prepare_tinycore_linux_image() {
 }
 
 prepare_packages() {
-  local packagedir="$BUILD_DIR/tcz"
+  PACKAGE_DIR="$BUILD_DIR/tcz"
+  PACKAGE_LIST="$BUILD_DIR/pacakge.list"
 
-  [ -d "$packagedir" ] || mkdir "$packagedir"
-  EXIT_HOOKS="$EXIT_HOOKS && find '$packagedir' -name '*.tmp' -exec rm -rf {} \; "
+  [ -d "$PACKAGE_DIR" ] || mkdir "$PACKAGE_DIR"
+  EXIT_HOOKS="$EXIT_HOOKS && find '$PACKAGE_DIR' -name '*.tmp' -exec rm -rf {} \; "
 
-  cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$packagedir'"
+  cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$PACKAGE_DIR'"
 
-  if [ 0 -lt "${#PACKAGES[@]}" ]
-  then
-    echo "Preparing ${#PACKAGES[@]} package(s)."
+  resolve_packages() {
+    touch "$PACKAGE_LIST"
+
     for i in ${PACKAGES[@]}
     do
-      [ -f "$packagedir/$i.tcz" ] || (
-        cd "$packagedir" ; 
+      (
+        echo "Resolving package '$i'..."
+        (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.tcz.dep" || :) >> "$PACKAGE_LIST.tmp"
+        echo "$i.tcz" >> "$PACKAGE_LIST.tmp"
+      )
+    done
+
+    cat "$PACKAGE_LIST.tmp" | uniq -u | sed '/^$/d' > "$PACKAGE_LIST"
+  }
+
+  download_and_unpack_packages() {
+    echo "Start preparing $(cat $PACKAGE_LIST | wc -l) packages..."
+    local _IFS="$IFS"
+    IFS=$'\n'
+    local i
+    for i in $(cat "$PACKAGE_LIST")
+    do
+      [ -z "$i" ] && continue
+
+      [ -f "$PACKAGE_DIR/$i" ] || (
+        cd "$PACKAGE_DIR" ; 
         echo "Fetching package '$i'..." ;
-        $CURL "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.tcz" -o "$i.tcz.tmp" ;
-        mv "$i.tcz.tmp" "$i.tcz"
+        DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i" -o "$i.tmp" ;
+        mv "$i.tmp" "$i"
       )
 
       ( 
         echo "Unpacking $i";
         cd "$BUILD_DIR";
-        unsquashfs -f "$packagedir/$i.tcz" ;
+        unsquashfs -f "$PACKAGE_DIR/$i" ;
         echo;
       )
     done
+  }
+
+  if [ 0 -lt "${#PACKAGES[@]}" ]
+  then
+    echo "Preparing ${#PACKAGES[@]} package(s)."
+    resolve_packages
+    download_and_unpack_packages
+
     F_APPLY_PACKAGES='true'
   fi
 }
