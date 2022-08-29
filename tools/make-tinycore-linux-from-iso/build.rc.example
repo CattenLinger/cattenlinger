@@ -1,24 +1,36 @@
 
+################################################################################################################################
 # Select version for tinycore linux
 # See http://tinycorelinux.net/downloads.html
 TC_VERSION=13
 
+################################################################################################################################
 # Select arch for tinycore linux
 # See http://tinycorelinux.net/TC_VERSION
 TC_ARCH=x86_64
 
+################################################################################################################################
 # TinyCore Linux Repo url
 #TC_REPO="http://tinycorelinux.net/"
 
-# TMP_DIR  is the build root
-# WORK_DIR is the current dir
-# CURL     is the curl command
+################################################################################################################################
+# DOWNLOAD is the curl download command for downloading files
+#          use CURL_DOWNLOAD to change the behavior
+#CURL_DOWNLOAD="$CURL_DOWNLOAD "
 
-# Cache files in build directory
+################################################################################################################################
+# FETCH    is the curl download command for fetch informations
+#          use CURL_FETCH to change the behavior
+#CURL_FETCH="$CURL_FETCH "
+
+################################################################################################################################
+# Caching files in build directory
 CACHE_FILES=true
 
-# tcz packages that will be bundled into rootfs
-# See the tinycorelinux repository
+################################################################################################################################
+# PACKAGES is tcz package names that will be bundled into rootfs
+#          See the tinycorelinux repository
+#          Dependencies will be auto resolved
 PACKAGES=(
   "pkg-config"
   "make"
@@ -33,9 +45,18 @@ PACKAGES=(
   "git"
 )
 
-# Additional patches to the rootfs
+################################################################################################################################
+# Additional patches to the rootfs.
+# rootfs is under $BUILD_DIR/rootfs
+#
+# PACKAGE_DIR is the directory that containing downloaded packages.
+# BUILD_DIR   is the build root.
+# WORK_DIR    is the current work directory
+
 additional_patchs() {
   #sudo sed -i '/^# ttyS0$/s#^..##' core/etc/securetty
   #sudo sed -i '/^tty1:/s#tty1#ttyS0#g' core/etc/inittab
   :
 }
+################################################################################################################################
+# END build.rc
