@@ -105,7 +105,7 @@ prepare_workspace() {
 
 prepare_tinycore_linux_image() {
   local tcimage="$BUILD_DIR/$TC_IMAGE"
-  
+
   if [ ! -f "$tcimage" ]
   then
     echo "Download tinycore image."
@@ -118,7 +118,7 @@ prepare_tinycore_linux_image() {
 
 prepare_packages() {
   local packagedir="$BUILD_DIR/tcz"
-  
+
   [ -d "$packagedir" ] || mkdir "$packagedir"
   EXIT_HOOKS="$EXIT_HOOKS && find '$packagedir' -name '*.tmp' -exec rm -rf {} \; "
 
@@ -166,11 +166,11 @@ copy_core_and_rootfs_from_iso() {
 }
 
 extract_rootfs() {
-  local roorfs="$BUILD_DIR/rootfs"
+  local rootfs="$BUILD_DIR/rootfs"
   echo "Extracting rootfs..."
 
-  mkdir "$roorfs"
-  ( cd "$roorfs"; zcat "$BUILD_DIR/core.gz" | cpio -idm )
+  mkdir "$rootfs"
+  ( cd "$rootfs"; zcat "$BUILD_DIR/core.gz" | cpio -idm )
   EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$rootfs'"
 }
 
