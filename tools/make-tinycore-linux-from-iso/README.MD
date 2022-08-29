@@ -1,4 +1,4 @@
-# Create customized tinycore linux
+# Create customized tinycore linux from Tinycore Linux ISO Image
 
 Usage
 
