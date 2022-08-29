@@ -232,7 +232,7 @@ apply_additional_patchs() {
 generate_new_rootfs() {
   # repackage core into initrd.gz
   echo "Generating new rootfs"
-  ( cd "$BUILD_DIR/rootfs" ; find -P . | cpio -opmd -H newc ) | gzip -9 -c > "$WORK_DIR/initrd.gz"
+  ( cd "$BUILD_DIR/rootfs" ; find -P . | cpio -o -H newc ) | gzip -9 -c > "$WORK_DIR/initrd.gz"
 }
 
 copy_core() {
