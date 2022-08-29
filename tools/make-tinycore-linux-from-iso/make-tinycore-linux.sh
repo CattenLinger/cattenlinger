@@ -151,7 +151,7 @@ prepare_packages() {
       )
     done
 
-    cat "$PACKAGE_LIST.tmp" | uniq -u | sed '/^$/d' > "$PACKAGE_LIST"
+    cat "$PACKAGE_LIST.tmp" | uniq | sed '/^$/d' > "$PACKAGE_LIST"
   }
 
   download_and_unpack_packages() {
@@ -239,7 +239,7 @@ apply_additional_patchs() {
 generate_new_rootfs() {
   # repackage core into output.gz
   echo "Generating new rootfs"
-  ( cd "$BUILD_DIR/rootfs" ; find | cpio -o -H newc ) | gzip -c > "$WORK_DIR/rootfs.gz"
+  ( cd "$BUILD_DIR/rootfs" ; find | cpio -o -H newc ) | gzip -9 -c > "$WORK_DIR/rootfs.gz"
 }
 
 copy_core() {
