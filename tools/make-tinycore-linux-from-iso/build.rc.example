@@ -1,0 +1,40 @@
+
+# Select version for tinycore linux
+# See http://tinycorelinux.net/downloads.html
+TC_VERSION=13
+
+# Select arch for tinycore linux
+# See http://tinycorelinux.net/TC_VERSION
+TC_ARCH=x86_64
+
+# TinyCore Linux Repo url
+#TC_REPO="http://tinycorelinux.net/"
+
+# TMP_DIR  is the build root
+# WORK_DIR is the current dir
+# CURL     is the curl command
+
+export ALL_PROXY=http://127.0.0.1:7890
+
+# tcz packages that will be bundled into rootfs
+# See the tinycorelinux repository
+PACKAGES=(
+  "pkg-config"
+  "make"
+  "gcc"
+  "gcc_base-dev"
+  "gcc_libs-dev"
+  "gcc_libs"
+  "glibc_base-dev"
+  "linux-5.15_api_headers"
+  "fuse"
+  "curl"
+  "git"
+)
+
+# Additional patches to the rootfs
+additional_patchs() {
+  #sudo sed -i '/^# ttyS0$/s#^..##' core/etc/securetty
+  #sudo sed -i '/^tty1:/s#tty1#ttyS0#g' core/etc/inittab
+  :
+}
