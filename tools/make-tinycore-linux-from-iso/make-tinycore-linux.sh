@@ -14,6 +14,9 @@ CURL="curl -L -# --retry 10 --retry-all-errors --connect-timeout 5 --speed-limit
 
 # Should cache downloaded files
 CACHE_FILES="$CACHE_FILES"
+cache_files() {
+  [ b'true' == b"$CACHE_FILES" ]
+}
 
 require() {
   [ -z "$(command -v $1 2> /dev/null)" ] && {
@@ -90,7 +93,7 @@ prepare_workspace() {
     mkdir -v "$BUILD_DIR"
   fi
 
-  EXIT_HOOKS=": "
+  EXIT_HOOKS=": && rm -rf $BUILD_DIR/*.tmp "
 
   __clean_on_exit() {
     echo "Executing exit hook."
@@ -106,8 +109,8 @@ prepare_tinycore_linux_image() {
   if [ ! -f "$tcimage" ]
   then
     echo "Download tinycore image."
-    (cd "$BUILD_DIR"; $CURL -O "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/$TC_IMAGE")
-    [ b'true' == b"$CACHE_FILES" ] || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$tcimage'"
+    (cd "$BUILD_DIR"; $CURL "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/$TC_IMAGE" -o "$TC_IMAGE.tmp"; mv "$TC_IMAGE.tmp" "$TC_IMAGE")
+    cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$tcimage'"
   fi
 
   echo "Using system image '$tcimage'."
@@ -116,26 +119,27 @@ prepare_tinycore_linux_image() {
 prepare_packages() {
   local packagedir="$BUILD_DIR/tcz"
   
-  [ ! -d "$packagedir" ] && mkdir "$packagedir"
-  [ b'true' == b"$CACHE_FILES" ] || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$packagedir'"
+  [ -d "$packagedir" ] || mkdir "$packagedir"
+  EXIT_HOOKS="$EXIT_HOOKS && find '$packagedir' -name '*.tmp' -exec rm -rf {} \; "
 
-  [ ! -d ""]
+  cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$packagedir'"
 
   if [ 0 -lt "${#PACKAGES[@]}" ]
   then
     echo "Preparing ${#PACKAGES[@]} package(s)."
     for i in ${PACKAGES[@]}
     do
-      [ ! -f "$packagedir/$i.tcz" ] || (
+      [ -f "$packagedir/$i.tcz" ] || (
         cd "$packagedir" ; 
-        echo "Fetching package $i" ;
-        $CURL -O "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.tcz" ;
+        echo "Fetching package '$i'..." ;
+        $CURL "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.tcz" -o "$i.tcz.tmp" ;
+        mv "$i.tcz.tmp" "$i.tcz"
       )
 
       ( 
         echo "Unpacking $i";
         cd "$BUILD_DIR";
-        unsquashfs -f $i.tcz ;
+        unsquashfs -f "$packagedir/$i.tcz" ;
         echo;
       )
     done
@@ -167,6 +171,7 @@ extract_rootfs() {
 
   mkdir "$roorfs"
   ( cd "$roorfs"; zcat "$BUILD_DIR/core.gz" | cpio -idm )
+  EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$rootfs'"
 }
 
 apply_packages() {
