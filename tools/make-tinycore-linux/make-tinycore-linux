@@ -97,6 +97,7 @@ apply_build_rc() {
     echo "Packages will be install: ${PACKAGES[@]}"
   fi
 
+  [ -d "$BUILD_OUTPUT" ] || mkdir -vp "$BUILD_OUTPUT"
   echo "$BUILD_OUTPUT will be the output directory"
 }
 
