@@ -63,10 +63,7 @@ additional_patchs() {
 # WORK_DIR    is the current work directory
 #
 ################################################################################################################################
-
-  #sudo sed -i '/^# ttyS0$/s#^..##' core/etc/securetty
-  #sudo sed -i '/^tty1:/s#tty1#ttyS0#g' core/etc/inittab
-  :
+: Write your additional rootfs patches here
 
 ################################################################################################################################
 }
