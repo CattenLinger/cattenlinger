@@ -64,7 +64,8 @@ cat "$VERSION_LIST" | jq '.assets | map(select(.name | contains("linux-amd64")))
 
 SELECTED_VERSION=""
 FILTERED_VERSION_LIST_LENGTH=$(cat $FILTERED_VERSION_LIST | jq 'length')
-if [ "$FILTERED_VERSION_LIST_LENGTH" -gt '1' ]; then
+if [ "$FILTERED_VERSION_LIST_LENGTH" -gt '1' ]
+then
     __selection=""
     __number='^[0-9]+$'
     while : ; do
@@ -78,8 +79,11 @@ if [ "$FILTERED_VERSION_LIST_LENGTH" -gt '1' ]; then
         echo
     done
     SELECTED_VERSION=$(cat "$FILTERED_VERSION_LIST" | jq -r " .[$(($__selection - 1))] | .browser_download_url ")
-else
+elif [ "$FILTERED_VERSION_LIST_LENGTH" -eq '1' ]
     SELECTED_VERSION=$(cat "$FILTERED_VERSION_LIST" | jq -r " .[0] | .browser_download_url ")
+else
+    echo "Unsupported platform '$PLATFORM'."
+    exit 1
 fi
 echo "Selected '$SELECTED_VERSION', start download."
 curl -L "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
