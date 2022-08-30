@@ -23,20 +23,20 @@ TC_ARCH=x86_64
 #CURL_DOWNLOAD="$CURL_DOWNLOAD "
 
 ################################################################################################################################
-# FETCH    is the curl download command for fetch informations
+# FETCH    is the curl download command for fetching informations
 #          use CURL_FETCH to change the behavior
 #CURL_FETCH="$CURL_FETCH "
 
 ################################################################################################################################
-# Caching files in build directory
+# Caching files into build directory
 CACHE_FILES=true
 
 ################################################################################################################################
-# Do not do clean up after build
+# Do not do cleaning up after build
 #DO_NOT_CLEANUP=true
 
 ################################################################################################################################
-# PACKAGES is tcz package names that will be bundled into rootfs
+# PACKAGES contains tcz package names that will be bundled into rootfs
 #          See the tinycorelinux repository
 #          Dependencies will be auto resolved
 PACKAGES=(
