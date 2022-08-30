@@ -14,6 +14,10 @@ TC_ARCH=x86_64
 #TC_REPO="http://tinycorelinux.net/"
 
 ################################################################################################################################
+# Set the output directory
+#BUILD_OUTPUT="$WORK_DIR"
+
+################################################################################################################################
 # DOWNLOAD is the curl download command for downloading files
 #          use CURL_DOWNLOAD to change the behavior
 #CURL_DOWNLOAD="$CURL_DOWNLOAD "
