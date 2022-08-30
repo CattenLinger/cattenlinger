@@ -53,18 +53,21 @@ PACKAGES=(
   "git"
 )
 
+additional_patchs() {
 ################################################################################################################################
 # Additional patches to the rootfs.
-# rootfs is under $BUILD_DIR/rootfs
+# the unpacked rootfs is under $BUILD_DIR/rootfs
 #
 # PACKAGE_DIR is the directory that containing downloaded packages.
 # BUILD_DIR   is the build root.
 # WORK_DIR    is the current work directory
+#
+################################################################################################################################
 
-additional_patchs() {
   #sudo sed -i '/^# ttyS0$/s#^..##' core/etc/securetty
   #sudo sed -i '/^tty1:/s#tty1#ttyS0#g' core/etc/inittab
   :
-}
+
 ################################################################################################################################
+}
 # END build.rc

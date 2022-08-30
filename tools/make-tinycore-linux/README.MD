@@ -1,6 +1,6 @@
 # Create customized tinycore linux
 
-Same as make-tinycore-linux-from-iso, but download core and ramdisk from repo directly.
+Same as make-tinycore-linux-from-iso, but download the kernel and ramdisk from repo directly.
 
 Usage
 
@@ -12,6 +12,6 @@ Then:
 curl -sL 'https://github.com/CattenLinger/cattenlinger/raw/master/tools/make-tinycore-linux/make-tinycore-linux' | sudo bash -
 ```
 
-The ramdisk and linux core will be copyed to the work directory.
+The ramdisk and linux kernel will be copied to the BUILD_OUTPUT(default is WORK_DIR).
 
-See build.rc.example for more options.
+See the build.rc.example for more options.
