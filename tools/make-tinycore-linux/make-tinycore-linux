@@ -166,7 +166,7 @@ prepare_packages() {
       [ -z "$pkgname" ] && return 0
       echo "$depth|- $pkgname";
       (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.dep" || :)>> "$pkgdep";
-      [ 0 -le `cat "$pkgdep" | wc -l` ] && cat $pkgdep | while read i
+      [ 0 -le `cat "$pkgdep" | wc -l | tr -d '[:space:]'` ] && cat $pkgdep | while read i
       do
         resolve_package $i "$depth   "
       done
@@ -186,7 +186,7 @@ prepare_packages() {
   }
 
   download_and_unpack_packages() {
-    echo "Start preparing $(cat "$PACKAGE_LIST" | wc -l) packages..."
+    echo "Start preparing $(cat "$PACKAGE_LIST" | wc -l | tr -d '[:space:]') packages..."
     local _IFS="$IFS"
     IFS=$'\n'
     local i
