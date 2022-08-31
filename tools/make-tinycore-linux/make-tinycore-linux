@@ -157,17 +157,18 @@ prepare_packages() {
 
   resolve_packages() {
     touch "$PACKAGE_LIST"
-
     resolve_package() {
       local pkgname="$1"
+      local depth="$2"
+
       local pkgdep="$PACKAGE_DIR/$i.dep.tmp"
 
       [ -z "$pkgname" ] && return 0
-      echo "Resolving dependencies for $pkgname";
+      echo "$depth|- $pkgname";
       (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.dep" || :)>> "$pkgdep";
       [ 0 -le `cat "$pkgdep" | wc -l` ] && cat $pkgdep | while read i
       do
-        resolve_package $i
+        resolve_package $i "$depth   "
       done
       echo "$pkgname" >> "$PACKAGE_LIST.tmp"
       cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
@@ -176,10 +177,12 @@ prepare_packages() {
 
     for i in ${PACKAGES[@]}
     do
+      echo "Resolving dependencies for $i";
       resolve_package "$i.tcz"
     done
 
     cat "$PACKAGE_LIST.tmp" | uniq | sed '/^$/d' > "$PACKAGE_LIST"
+    
   }
 
   download_and_unpack_packages() {
