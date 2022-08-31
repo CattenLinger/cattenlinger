@@ -158,28 +158,28 @@ prepare_packages() {
   resolve_packages() {
     touch "$PACKAGE_LIST"
 
+    resolve_package() {
+      local pkgname="$1"
+      local pkgdep="$PACKAGE_DIR/$i.dep.tmp"
+
+      [ -z "$pkgname" ] && return 0
+      echo "Resolving dependencies for $pkgname";
+      (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.dep" || :)>> "$pkgdep";
+      [ 0 -le `cat "$pkgdep" | wc -l` ] && cat $pkgdep | while read i
+      do
+        resolve_package $i
+      done
+      echo "$pkgname" >> "$PACKAGE_LIST.tmp"
+      cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
+      rm -rf "$pkgdep"
+    }
+
     for i in ${PACKAGES[@]}
     do
       resolve_package "$i.tcz"
     done
 
     cat "$PACKAGE_LIST.tmp" | uniq | sed '/^$/d' > "$PACKAGE_LIST"
-  }
-
-  resolve_package() {
-    local pkgname="$1"
-    local pkgdep="$PACKAGE_DIR/$i.dep.tmp"
-
-    [ -z "$pkgname" ] && return 0
-    echo "Resolving dependencies for $pkgname";
-    (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.dep" || :)>> "$pkgdep";
-    [ 0 -le `cat "$pkgdep" | wc -l` ] && cat $pkgdep | while read i
-    do
-      resolve_package $i
-    done
-    echo "$pkgname" >> "$PACKAGE_LIST.tmp"
-    cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
-    rm -rf "$pkgdep"
   }
 
   download_and_unpack_packages() {
