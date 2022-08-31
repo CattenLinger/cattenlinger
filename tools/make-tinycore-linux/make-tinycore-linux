@@ -155,34 +155,34 @@ prepare_packages() {
 
   cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$PACKAGE_DIR'"
 
+  resolve_package_recursively() {
+    local pkgname="$1"
+    local depth="$2"
+    local pkgdep="$PACKAGE_DIR/$pkgname.dep"
+
+    [ -z "$pkgname" ] && return 0
+
+    echo "$depth|- $pkgname";
+    (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$pkgname.dep" || :)>> "$pkgdep";
+    [ 0 -lt `cat "$pkgdep" | wc -l | tr -d '[:space:]'` ] && cat $pkgdep | sed '/^$/d' | while read pkg
+    do
+      resolve_package_recursively $pkg "$depth   "
+    done
+    echo "$pkgname" >> "$PACKAGE_LIST.tmp"
+    cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
+    rm -rf "$pkgdep"
+  }
+
   resolve_packages() {
     touch "$PACKAGE_LIST"
-    resolve_package() {
-      local pkgname="$1"
-      local depth="$2"
-
-      local pkgdep="$PACKAGE_DIR/$i.dep.tmp"
-
-      [ -z "$pkgname" ] && return 0
-      echo "$depth|- $pkgname";
-      (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$i.dep" || :)>> "$pkgdep";
-      [ 0 -le `cat "$pkgdep" | wc -l | tr -d '[:space:]'` ] && cat $pkgdep | while read i
-      do
-        resolve_package $i "$depth   "
-      done
-      echo "$pkgname" >> "$PACKAGE_LIST.tmp"
-      cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
-      rm -rf "$pkgdep"
-    }
-
+    local i
     for i in ${PACKAGES[@]}
     do
-      echo "Resolving dependencies for $i";
-      resolve_package "$i.tcz"
+      echo "Resolving dependencies for '$i'...";
+      resolve_package_recursively "$i.tcz"
     done
 
     cat "$PACKAGE_LIST.tmp" | uniq | sed '/^$/d' > "$PACKAGE_LIST"
-    
   }
 
   download_and_unpack_packages() {
