@@ -204,8 +204,7 @@ prepare_packages() {
       ( 
         echo "Unpacking $i";
         cd "$BUILD_DIR";
-        unsquashfs -f "$PACKAGE_DIR/$i" ;
-        echo;
+        unsquashfs -quiet -f "$PACKAGE_DIR/$i" ;
       )
     done
   }
