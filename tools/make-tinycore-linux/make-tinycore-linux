@@ -148,7 +148,7 @@ prepare_tinycore_linux_image() {
 
 prepare_packages() {
   PACKAGE_DIR="$BUILD_DIR/tcz"
-  PACKAGE_LIST="$BUILD_DIR/pacakge.list"
+  PACKAGE_LIST="$BUILD_DIR/package.list"
 
   [ -d "$PACKAGE_DIR" ] || mkdir "$PACKAGE_DIR"
   EXIT_HOOKS="$EXIT_HOOKS && find '$PACKAGE_DIR' -name '*.tmp' -exec rm -rf {} \; "
@@ -182,7 +182,7 @@ prepare_packages() {
       resolve_package_recursively "$i.tcz"
     done
 
-    cat "$PACKAGE_LIST.tmp" | uniq | sed '/^$/d' > "$PACKAGE_LIST"
+    cat "$PACKAGE_LIST.tmp" | sort | uniq | sed '/^$/d' > "$PACKAGE_LIST"
   }
 
   download_and_unpack_packages() {
