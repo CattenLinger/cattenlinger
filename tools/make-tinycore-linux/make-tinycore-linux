@@ -176,7 +176,7 @@ prepare_packages() {
     echo "$depth|- $pkgname";
 
     # Download package dependency file and cache it
-    [ ! -f "$pkgdep" ] && (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$pkgname.dep" || :)>> "$pkgdep"; || :
+    { [ ! -f "$pkgdep" ] && (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$pkgname.dep" || :)>> "$pkgdep"; } || :
 
     # If package has dependencies then resolve dependencies recursively
     local pkg
