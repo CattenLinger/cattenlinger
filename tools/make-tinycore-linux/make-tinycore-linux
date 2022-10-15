@@ -1,49 +1,52 @@
 #!/bin/bash
 set -e
 
-[ 0 == $UID ] || {
-  echo "Builder script require super user permissions."
-  exit 0
+################################################################
+# Init
+################################################################
+
+# Check root
+[ 0 == $UID ] || { echo "Builder script requires super user permissions."; exit 0; }
+
+# check command exists, or exit with 1;
+require() {
+  for i in $@
+  do 
+    [ -n "$(command -v $1 2> /dev/null)" ] || { echo "Command '$1' is required"; exit 1; } 
+  done
 }
 
-unset DOWNLOAD FETCH PACKAGES
+# Check command exists.
+require curl unsquashfs cpio zcat uniq
 
+################################################################
+# Prepare settings
+################################################################
+
+# Give default value to TC_REPO
 TC_REPO="$TC_REPO"
 [ -z "$TC_REPO" ] && TC_REPO="http://tinycorelinux.net/"
 
-#Packages to be pack in
+# Init variables
+unset DOWNLOAD FETCH PACKAGES
 
-PACKAGES=()
+# The download command
 CURL_DOWNLOAD="curl -L -# --retry 10 --retry-all-errors --connect-timeout 5 --speed-limit 10 --speed-time 5"
 DOWNLOAD() {
   eval "$CURL_DOWNLOAD $@"
 }
 
+# The fetch command
 CURL_FETCH="curl -sf --retry 10 --connect-timeout 5 --speed-time 5"
 FETCH() {
   eval "$CURL_FETCH $@"
 }
 
-
-# Should cache downloaded files
+# if should cache downloaded files
 CACHE_FILES="$CACHE_FILES"
-cache_files() {
+cache_files_enabled() {
   [ b'true' == b"$CACHE_FILES" ]
 }
-
-require() {
-  [ -z "$(command -v $1 2> /dev/null)" ] && {
-    echo "Command $1 is required"
-    exit 1
-  }
-  return 0
-}
-
-require curl
-require unsquashfs
-require cpio
-require zcat
-require uniq
 
 WORK_DIR="$(pwd)"
 echo "Will use '$WORK_DIR' as current dir"
@@ -51,9 +54,26 @@ echo "Will use '$WORK_DIR' as current dir"
 BUILD_OUTPUT="$BUILD_OUTPUT"
 [ -z "BUILD_OUTPUT" ] && BUILD_OUTPUT="$WORK_DIR"
 
-#
-# Tinycore Linux Properties
-#
+PACKAGES=()
+
+################################################################
+# Prepare functions
+################################################################
+
+apply_build_rc() {
+  if [ -f "$WORK_DIR/build.rc" ]
+  then
+    echo "'build.rc' found. Applying settings."
+    source "$WORK_DIR/build.rc"
+  fi
+
+  [ 0 -lt "${#PACKAGES[@]}" ] && echo "Packages will be install: ${PACKAGES[@]}"
+
+  # Create output directory if not exists.
+  [ -d "$BUILD_OUTPUT" ] || mkdir -vp "$BUILD_OUTPUT"
+  echo "'$BUILD_OUTPUT' will be the output directory"
+}
+
 apply_tc_settings() {
   # See http://tinycorelinux.net/downloads.html
   TC_VERSION=$TC_VERSION
@@ -82,43 +102,31 @@ apply_tc_settings() {
   echo "Useing tinycore linux $TC_VERSION, arch $TC_ARCH"
 }
 
-#
-# Source the build.rc
-#
-apply_build_rc() {
-  if [ -f "$WORK_DIR/build.rc" ]
-  then
-    echo "build.rc found. Applying settings."
-    source "$WORK_DIR/build.rc"
-  fi
-
-  if [ 0 -lt "${#PACKAGES[@]}" ]
-  then
-    echo "Packages will be install: ${PACKAGES[@]}"
-  fi
-
-  [ -d "$BUILD_OUTPUT" ] || mkdir -vp "$BUILD_OUTPUT"
-  echo "$BUILD_OUTPUT will be the output directory"
-}
 
 prepare_workspace() {
   BUILD_DIR="$WORK_DIR/build"
 
-  if [ ! -d "$BUILD_DIR" ]
-  then
-    echo "Create build directory"
-    mkdir -v "$BUILD_DIR"
-  fi
+  # Create build directory if not exists
+  [ -d "$BUILD_DIR" ] || { echo "Create build directory"; mkdir -v "$BUILD_DIR"; }
 
+  # Setting DO NOT CLEAN UP after build
+  DO_NOT_CLEAN_UP="$DO_NOT_CLEAN_UP"
+  # forward compability
+  [ -z "$DO_NOT_CLEAN_UP" ] && DO_NOT_CLEAN_UP="$DO_NOT_CLEANUP"
+  do_not_clean_up() {
+    [ b'true' == b"$DO_NOT_CLEAN_UP" ]
+  }
+
+  # Setup exit hook
   EXIT_HOOKS=": && rm -rf $BUILD_DIR/*.tmp "
-  DO_NOT_CLEANUP="$DO_NOT_CLEANUP"
+  exit_hook() {
+    EXIT_HOOKS="$EXIT_HOOKS && $1"
+  }
   __clean_on_exit() {
-    [ b'true' == b"$DO_NOT_CLEANUP" ] && return 0
-
+    [ b'true' == b"$DO_NOT_CLEAN_UP" ] && return 0
     echo "Executing exit hook."
     eval "$EXIT_HOOKS"
   }
-
   trap __clean_on_exit SIGINT SIGTERM SIGKILL EXIT
 }
 
@@ -129,20 +137,20 @@ prepare_tinycore_linux_image() {
   if [ ! -f "$tccore" ]
   then
     echo "Downloading tinycore..."
+    # If kernel does not exists, download it from repo
     [ -f "$tccore" ] || (
       DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/distribution_files/$TC_CORE" -o "$tccore.tmp"; 
       mv "$tccore.tmp" "$tccore";
     )
-
-    cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$tccore'"
+    cache_files_enabled || exit_hook "rm -rf '$tccore'"
 
     echo "Downloading initramfs..."
+    # If initrd does not exists, download it from repo
     [ -f "$tcrandisk" ] || (
         DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/distribution_files/$TC_RAMDISK" -o "$tcramdisk.tmp"; 
         mv "$tcramdisk.tmp" "$tcramdisk";
     )
-
-    cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$tcramdisk'"
+    cache_files_enabled || exit_hook "rm -rf '$tcramdisk'"
   fi
 }
 
@@ -151,9 +159,12 @@ prepare_packages() {
   PACKAGE_LIST="$BUILD_DIR/package.list"
 
   [ -d "$PACKAGE_DIR" ] || mkdir "$PACKAGE_DIR"
-  EXIT_HOOKS="$EXIT_HOOKS && find '$PACKAGE_DIR' -name '*.tmp' -exec rm -rf {} \; "
+  
+  # if do_not_clean_up set, not deleting temp files after build
+  do_not_clean_up || exit_hook "find '$PACKAGE_DIR' -name '*.tmp' -exec rm -rf {} \; "
 
-  cache_files || EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$PACKAGE_DIR'"
+  # if cache_files set, not deleting packages after build
+  cache_files_enabled || exit_hook "rm -rf '$PACKAGE_DIR'"
 
   resolve_package_recursively() {
     local pkgname="$1"
@@ -163,14 +174,21 @@ prepare_packages() {
     [ -z "$pkgname" ] && return 0
 
     echo "$depth|- $pkgname";
+
+    # Download pakcage dependency file
     (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$pkgname.dep" || :)>> "$pkgdep";
-    [ 0 -lt `cat "$pkgdep" | wc -l | tr -d '[:space:]'` ] && cat $pkgdep | sed '/^$/d' | while read pkg
+
+    # If pakcage has dependencies then resolve dependencies recursively
+    [ 0 -lt `cat "$pkgdep" | wc -l | tr -d '[:space:]'` ] && cat "$pkgdep" | sed '/^$/d' | while read pkg
     do
       resolve_package_recursively $pkg "$depth   "
     done
+
+    # Add package and dependencies to the temp file
     echo "$pkgname" >> "$PACKAGE_LIST.tmp"
     cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
-    rm -rf "$pkgdep"
+
+    do_not_clean_up || rm -rf "$pkgdep"
   }
 
   resolve_packages() {
@@ -202,20 +220,22 @@ prepare_packages() {
       )
 
       ( 
-        echo "Unpacking $i";
         cd "$BUILD_DIR";
+        echo "Unpacking '$i'...";
         unsquashfs -quiet -f "$PACKAGE_DIR/$i" ;
       )
     done
+    IFS="$_IFS"
   }
 
   if [ 0 -lt "${#PACKAGES[@]}" ]
   then
     echo "Preparing ${#PACKAGES[@]} package(s)."
+    
     resolve_packages
     download_and_unpack_packages
     
-    EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$BUILD_DIR/squashfs-root'"
+    exit_hook "rm -rf '$BUILD_DIR/squashfs-root'"
 
     F_APPLY_PACKAGES='true'
   fi
@@ -225,9 +245,11 @@ extract_rootfs() {
   local rootfs="$BUILD_DIR/rootfs"
   echo "Extracting rootfs..."
 
-  mkdir "$rootfs"
-  ( cd "$rootfs"; gzip -d -c "$BUILD_DIR/$TC_RAMDISK" | cpio -idm )
-  EXIT_HOOKS="$EXIT_HOOKS && rm -rf '$rootfs'"
+  # Delete rootfs dir if exists
+  [ -d "$rootfs" ] && rm -rf "$rootfs" 
+  ( mkdir -p "$rootfs"; cd "$rootfs"; gzip -d -c "$BUILD_DIR/$TC_RAMDISK" | cpio -idm )
+
+  exit_hook "rm -rf '$rootfs'"
 }
 
 apply_packages() {
@@ -241,11 +263,7 @@ apply_packages() {
 apply_additional_patchs() {
   if declare -f additional_patchs > /dev/null 2>&1
   then
-    echo "Applying additional patchs."
-    (
-      cd $BUILD_DIR; 
-      additional_patchs;
-    )
+    ( echo "Applying additional patchs."; cd $BUILD_DIR; additional_patchs; )
   fi
 }
 
