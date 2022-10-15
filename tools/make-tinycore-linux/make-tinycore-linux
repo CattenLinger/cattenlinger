@@ -175,10 +175,11 @@ prepare_packages() {
 
     echo "$depth|- $pkgname";
 
-    # Download pakcage dependency file
-    (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$pkgname.dep" || :)>> "$pkgdep";
+    # Download package dependency file and cache it
+    [ ! -f "$pkgdep" ] && (FETCH -sf "$TC_REPO/$TC_VERSION.x/$TC_ARCH/tcz/$pkgname.dep" || :)>> "$pkgdep"; || :
 
-    # If pakcage has dependencies then resolve dependencies recursively
+    # If package has dependencies then resolve dependencies recursively
+    local pkg
     [ 0 -lt `cat "$pkgdep" | wc -l | tr -d '[:space:]'` ] && cat "$pkgdep" | sed '/^$/d' | while read pkg
     do
       resolve_package_recursively $pkg "$depth   "
