@@ -8,6 +8,9 @@ set -e
 # Check root
 [ 0 == $UID ] || { echo "Builder script requires super user permissions."; exit 0; }
 
+# Arguments
+export ARGS=($@)
+
 # check command exists, or exit with 1;
 require() {
   for i in $@
@@ -190,7 +193,7 @@ prepare_packages() {
     echo "$pkgname" >> "$PACKAGE_LIST.tmp"
     cat "$pkgdep" >> "$PACKAGE_LIST.tmp"
 
-    do_not_clean_up || rm -rf "$pkgdep"
+    cache_files_enabled || rm -rf "$pkgdep"
   }
 
   resolve_packages() {
@@ -200,6 +203,7 @@ prepare_packages() {
     do
       echo "Resolving dependencies for '$i'...";
       resolve_package_recursively "$i.tcz"
+      echo
     done
 
     cat "$PACKAGE_LIST.tmp" | sort | uniq | sed '/^$/d' > "$PACKAGE_LIST"
