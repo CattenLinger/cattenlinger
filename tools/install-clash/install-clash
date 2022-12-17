@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 PLATFORM=$([ ! -z "$PLATFORM" ] || echo "linux-amd64" )
@@ -40,13 +40,14 @@ trap "cleanup_exit" SIGINT SIGTERM EXIT
 
 setup_start
 
-CURL_OPT="$CURL_OPT -L"
-(echo "$@" | grep '\-v' > /dev/null 2>&1) || CURL_OPT="-# $CURL_OPT"
+CURL=(curl -L "$CURL_OPT")
+(echo "$@" | grep '\-v' > /dev/null 2>&1) || CURL=(${CURL[@]} "-#")
+fetch() { ${CURL[@]} $@; }
 
 VERSION_LIST="$_tempfile/versions"
 
 echo "Downloading file list"
-curl $CURL_OPT -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/Dreamacro/clash/releases" \
+fetch -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/Dreamacro/clash/releases" \
 | jq '.[0] | { name: .name , assets : .assets | map({ name: .name, content_type: .content_type, browser_download_url: .browser_download_url }) }' \
 > "$VERSION_LIST"
 
@@ -55,7 +56,9 @@ CURRENT_VERSION=""
 
 LATEST_VERSION=$(cat "$VERSION_LIST" | jq '.name')
 
-[ "$CURRENT_VERSION" == "$LATEST_VERSION" ] && { echo "Version is same: $CURRENT_VERSION, $LATEST_VERSION"; exit 0; }
+[ "$CURRENT_VERSION" == "$LATEST_VERSION" ] && {
+	(echo "$@" | grep '\-r' > /dev/null 2>&1) || { echo "Version is same: $CURRENT_VERSION, $LATEST_VERSION. Use '-r' to reinstall."; exit 0; }
+}
 
 FILTERED_VERSION_LIST="$_tempfile/filtered_version"
 cat "$VERSION_LIST" | jq '.assets | map(select(.name | contains("linux-amd64")))' > "$FILTERED_VERSION_LIST"
@@ -84,7 +87,7 @@ else
     exit 1
 fi
 echo "Selected '$SELECTED_VERSION', start download."
-curl $CURL_OPT "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
+fetch "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
 echo "Installing..."
 gzip -vcd "$_tempfile/clash.gz" > "$_workdir/bin/clash"
 chmod +x "$_workdir/bin/clash"
