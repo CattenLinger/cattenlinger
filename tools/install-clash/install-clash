@@ -18,7 +18,7 @@ require curl
 require gzip
 
 _tempfile="/tmp/tmp-$(date +%s%N)"
-_workdir="$(pwd)"
+_workdir="$(realpath $CLASH_HOME)"
 _datadir="$_workdir/data"
 
 setup_start() {
