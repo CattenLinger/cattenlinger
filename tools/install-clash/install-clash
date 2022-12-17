@@ -40,24 +40,22 @@ trap "cleanup_exit" SIGINT SIGTERM EXIT
 
 setup_start
 
+CURL_OPT="$CURL_OPT -L"
+(echo "$@" | grep '\-v' > /dev/null 2>&1) || CURL_OPT="-# $CURL_OPT"
+
 VERSION_LIST="$_tempfile/versions"
 
 echo "Downloading file list"
-curl -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/Dreamacro/clash/releases" \
+curl $CURL_OPT -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/Dreamacro/clash/releases" \
 | jq '.[0] | { name: .name , assets : .assets | map({ name: .name, content_type: .content_type, browser_download_url: .browser_download_url }) }' \
 > "$VERSION_LIST"
 
 CURRENT_VERSION=""
-if [ -f "$_datadir/current_version" ]; then
-    CURRENT_VERSION=$(cat "$_datadir/current_version")
-fi
+[ -f "$_datadir/current_version" ] && CURRENT_VERSION=$(cat "$_datadir/current_version") || :
 
 LATEST_VERSION=$(cat "$VERSION_LIST" | jq '.name')
 
-if [ "$CURRENT_VERSION" == "$LATEST_VERSION" ]; then
-    echo "Version is same: $CURRENT_VERSION, $LATEST_VERSION"
-    exit 0
-fi
+[ "$CURRENT_VERSION" == "$LATEST_VERSION" ] && { echo "Version is same: $CURRENT_VERSION, $LATEST_VERSION"; exit 0; }
 
 FILTERED_VERSION_LIST="$_tempfile/filtered_version"
 cat "$VERSION_LIST" | jq '.assets | map(select(.name | contains("linux-amd64")))' > "$FILTERED_VERSION_LIST"
@@ -79,14 +77,14 @@ then
         echo
     done
     SELECTED_VERSION=$(cat "$FILTERED_VERSION_LIST" | jq -r " .[$(($__selection - 1))] | .browser_download_url ")
-elif [ "$FILTERED_VERSION_LIST_LENGTH" -eq '1' ]
+elif [ "$FILTERED_VERSION_LIST_LENGTH" -eq '1' ]; then
     SELECTED_VERSION=$(cat "$FILTERED_VERSION_LIST" | jq -r " .[0] | .browser_download_url ")
 else
     echo "Unsupported platform '$PLATFORM'."
     exit 1
 fi
 echo "Selected '$SELECTED_VERSION', start download."
-curl -L "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
+curl $CURL_OPT "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
 echo "Installing..."
 gzip -vcd "$_tempfile/clash.gz" > "$_workdir/bin/clash"
 chmod +x "$_workdir/bin/clash"
