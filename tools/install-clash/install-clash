@@ -2,7 +2,7 @@
 set -e
 
 PLATFORM=$([ ! -z "$PLATFORM" ] || echo "linux-amd64" )
-CLASH_HOME=$([ ! -z "$CLASH_HOME" ] || echo "$pwd")
+CLASH_HOME=$([ ! -z "$CLASH_HOME" ] || echo "$(pwd)")
 
 require() {
     local requirement="$1"
