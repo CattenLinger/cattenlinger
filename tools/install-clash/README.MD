@@ -3,7 +3,7 @@
 Usage:
 
 ```
-curl -sL 'https://raw.githubusercontent.com/CattenLinger/cattenlinger/master/tools/install-clash/install-clash' | bash -
+bash - <(curl -L 'https://raw.githubusercontent.com/CattenLinger/cattenlinger/master/tools/install-clash/install-clash')
 ```
 
 Give `PLATFORM` variable to select platform (see Clash's release page: https://github.com/Dreamacro/clash/releases)
