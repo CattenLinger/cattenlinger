@@ -9,3 +9,5 @@ bash - <(curl -L 'https://raw.githubusercontent.com/CattenLinger/cattenlinger/ma
 Give `PLATFORM` variable to select platform (see Clash's release page: https://github.com/Dreamacro/clash/releases)
 
 Give `CLASH_HOME` variable, Clash will be installed into `CLASH_HOME/bin`
+
+Give `CLASH_VERSION` variable, installer will get the release from specified tag.

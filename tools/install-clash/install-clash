@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
-PLATFORM=$([ ! -z "$PLATFORM" ] || echo "linux-amd64" )
-CLASH_HOME=$([ ! -z "$CLASH_HOME" ] || echo "$(pwd)")
+PLATFORM="$PLATFORM"
+[ -n "$PLATFORM" ] || PLATFORM="linux-amd64"
+
+CLASH_HOME="$CLASH_HOME"
+[ -n "$CLASH_HOME" ] || CLASH_HOME="$(pwd)"
+
+CLASH_VERSION="$CLASH_VERSION"
 
 require() {
     local requirement="$1"
@@ -18,7 +23,7 @@ require curl
 require gzip
 
 _tempfile="/tmp/tmp-$(date +%s%N)"
-_workdir="$(realpath $CLASH_HOME)"
+_workdir="$(realpath "$CLASH_HOME")"
 _datadir="$_workdir/data"
 
 setup_start() {
@@ -29,17 +34,23 @@ setup_start() {
     [ -d "$_workdir/bin" ] || mkdir -p "$_workdir/bin"
 }
 
+FINISHED='false'
 cleanup_exit() {
-    echo ""
+    [ -n "$FINISHED" ] || return
+    [ "$FINISHED" == 'true' ] || echo
+
     echo "Cleaning up..."
     IFS=$__OLD_IFS
     [ -d "$_tempfile" ] && rm -rf "$_tempfile" -v
+    FINISHED=''
     exit 0
 }
 
 trap "cleanup_exit" SIGINT SIGTERM EXIT
 
 setup_start
+
+echo "Will install clash into '$_workdir'."
 
 CURL=(curl -L "$CURL_OPT")
 (echo "$@" | grep '\-v' > /dev/null 2>&1) || CURL=(${CURL[@]} "-#")
@@ -48,10 +59,24 @@ fetch() { ${CURL[@]} $@; }
 VERSION_LIST="$_tempfile/versions"
 GITHUB_REPO="MetaCubeX/mihomo"
 
+VERSION_LIST_ENDPOINT="https://api.github.com/repos/$GITHUB_REPO/releases"
+[ -z "$CLASH_VERSION" ] || VERSION_LIST_ENDPOINT="$VERSION_LIST_ENDPOINT/tags/$CLASH_VERSION"
+[ -z "$CLASH_VERSION" ] || echo "Using version: $CLASH_VERSION"
+
+##
 echo "Downloading file list"
-fetch -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$GITHUB_REPO/releases" \
+if [ -z "$CLASH_VERSION" ]; then
+
+fetch -H "Accept: application/vnd.github.v3+json" "$VERSION_LIST_ENDPOINT" \
 | jq '.[0] | { name: .name , assets : .assets | map({ name: .name, content_type: .content_type, browser_download_url: .browser_download_url }) }' \
 > "$VERSION_LIST"
+
+else
+fetch -H "Accept: application/vnd.github.v3+json" "$VERSION_LIST_ENDPOINT" \
+| jq '{ name: .name , assets : .assets | map({ name: .name, content_type: .content_type, browser_download_url: .browser_download_url }) }' \
+> "$VERSION_LIST"
+fi
+##
 
 CURRENT_VERSION=""
 [ -f "$_datadir/current_version" ] && CURRENT_VERSION=$(cat "$_datadir/current_version") || :
@@ -63,7 +88,7 @@ LATEST_VERSION=$(cat "$VERSION_LIST" | jq '.name')
 }
 
 FILTERED_VERSION_LIST="$_tempfile/filtered_version"
-cat "$VERSION_LIST" | jq '.assets | map(select(.name | contains("linux-amd64") | endswith(".gz")))' > "$FILTERED_VERSION_LIST"
+cat "$VERSION_LIST" | jq '.assets | map(select(.name | contains("linux-amd64") and endswith(".gz")))' > "$FILTERED_VERSION_LIST"
 
 SELECTED_VERSION=""
 FILTERED_VERSION_LIST_LENGTH=$(cat $FILTERED_VERSION_LIST | jq 'length')
@@ -90,9 +115,18 @@ else
 fi
 echo "Selected '$SELECTED_VERSION', start download."
 fetch "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
+
+##
 echo "Installing..."
+
 gzip -vcd "$_tempfile/clash.gz" > "$_workdir/bin/clash"
+echo "Extracted Clash to target directory."
+
 chmod +x "$_workdir/bin/clash"
+echo "Added executable flag to binary."
+
 echo "$LATEST_VERSION" > "$_datadir/current_version"
+FINISHED='true'
 echo "Finished."
+
 exit 0
