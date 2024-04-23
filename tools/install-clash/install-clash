@@ -45,9 +45,10 @@ CURL=(curl -L "$CURL_OPT")
 fetch() { ${CURL[@]} $@; }
 
 VERSION_LIST="$_tempfile/versions"
+GITHUB_REPO="MetaCubeX/mihomo"
 
 echo "Downloading file list"
-fetch -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/Dreamacro/clash/releases" \
+fetch -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$GITHUB_REPO/releases" \
 | jq '.[0] | { name: .name , assets : .assets | map({ name: .name, content_type: .content_type, browser_download_url: .browser_download_url }) }' \
 > "$VERSION_LIST"
 
