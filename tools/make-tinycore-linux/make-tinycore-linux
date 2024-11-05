@@ -108,7 +108,9 @@ apply_tc_settings() {
       exit 1
     ;;
   esac
-  echo "Useing tinycore linux $TC_VERSION, arch $TC_ARCH"
+  TC_CORE_SIGN="$TC_CORE.md5.txt"
+  TC_RAMDISK_SIGN="$TC_RAMDISK.md5.txt"
+  echo "Using tinycore linux $TC_VERSION, arch $TC_ARCH"
 }
 
 ################################
@@ -148,24 +150,55 @@ prepare_workspace() {
 #
 prepare_tinycore_linux_image() {
   local tccore="$BUILD_DIR/$TC_CORE"
+  local tccore_sign="$BUILD_DIR/$TC_CORE_SIGN"
   local tcramdisk="$BUILD_DIR/$TC_RAMDISK"
+  local tcramdisk_sign="$BUILD_DIR/$TC_RAMDISK_SIGN"
+
+  # sign variables
+  local g_sign
+  local f_sign
 
   if [ ! -f "$tccore" ]
   then
     echo "Downloading tinycore..."
+
+    #
     # If kernel does not exists, download it from repo
+    #
+    [ -f "$tccore_sign" ] || (
+      DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/distribution_files/$TC_CORE_SIGN" -o "$tccore_sign";
+    )
     [ -f "$tccore" ] || (
       DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/distribution_files/$TC_CORE" -o "$tccore.tmp"; 
       mv "$tccore.tmp" "$tccore";
     )
+    g_sign=`awk '{ print $1 }' "$tccore_sign"`
+    f_sign=`md5sum $tccore | awk '{ print $1 }'`
+    [ x"$g_sign" == x"$f_sign" ] || {
+      echo "Downloaded kernel checksum mismatch.";
+      rm -v "$tccore_sign" "$tccore";
+      exit 1;
+    }
     cache_files_enabled || exit_hook "rm -rf '$tccore'"
 
-    echo "Downloading initramfs..."
+    #
     # If initrd does not exists, download it from repo
-    [ -f "$tcrandisk" ] || (
+    #
+    echo "Downloading initramfs..."
+    [ -f "$tcramdisk_sign" ] || (
+      DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/distribution_files/$TC_RAMDISK_SIGN" -o "$tcramdisk_sign";
+    )
+    [ -f "$tcramdisk" ] || (
         DOWNLOAD "$TC_REPO/$TC_VERSION.x/$TC_ARCH/release/distribution_files/$TC_RAMDISK" -o "$tcramdisk.tmp"; 
         mv "$tcramdisk.tmp" "$tcramdisk";
     )
+    g_sign=`awk '{ print $1 }' "$tcramdisk_sign"`
+    f_sign=`md5sum $tcramdisk | awk '{ print $1 }'`
+    [ x"$g_sign" == x"$f_sign" ] || {
+      echo "Downloaded ramdisk checksum mismatch.";
+      rm -v "$tcramdisk_sign" "$tcramdisk";
+      exit 1;
+    }
     cache_files_enabled || exit_hook "rm -rf '$tcramdisk'"
   fi
 }
