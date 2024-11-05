@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-################################################################
+################################
 # Init
-################################################################
+################################
 
 # Check root
 [ 0 == $UID ] || { echo "Builder script requires super user permissions."; exit 0; }
@@ -22,9 +22,9 @@ require() {
 # Check command exists.
 require curl unsquashfs cpio zcat uniq
 
-################################################################
+################################
 # Prepare settings
-################################################################
+################################
 
 # Give default value to TC_REPO
 TC_REPO="$TC_REPO"
@@ -55,14 +55,17 @@ WORK_DIR="$(pwd)"
 echo "Will use '$WORK_DIR' as current dir"
 
 BUILD_OUTPUT="$BUILD_OUTPUT"
-[ -z "BUILD_OUTPUT" ] && BUILD_OUTPUT="$WORK_DIR"
+[ -z "$BUILD_OUTPUT" ] && BUILD_OUTPUT="$WORK_DIR" || :
 
 PACKAGES=()
 
-################################################################
+################################
 # Prepare functions
-################################################################
+################################
 
+################################
+# Apply build receipt from build.rc
+#
 apply_build_rc() {
   if [ -f "$WORK_DIR/build.rc" ]
   then
@@ -77,6 +80,9 @@ apply_build_rc() {
   echo "'$BUILD_OUTPUT' will be the output directory"
 }
 
+################################
+# Check and prepare settings
+#
 apply_tc_settings() {
   # See http://tinycorelinux.net/downloads.html
   TC_VERSION=$TC_VERSION
@@ -105,7 +111,10 @@ apply_tc_settings() {
   echo "Useing tinycore linux $TC_VERSION, arch $TC_ARCH"
 }
 
-
+################################
+# Prepare the build directory
+# and setup environment
+#
 prepare_workspace() {
   BUILD_DIR="$WORK_DIR/build"
 
@@ -133,6 +142,10 @@ prepare_workspace() {
   trap __clean_on_exit SIGINT SIGTERM SIGKILL EXIT
 }
 
+################################
+# Download tinycore linux kernel
+# and ramdisk
+#
 prepare_tinycore_linux_image() {
   local tccore="$BUILD_DIR/$TC_CORE"
   local tcramdisk="$BUILD_DIR/$TC_RAMDISK"
@@ -157,6 +170,10 @@ prepare_tinycore_linux_image() {
   fi
 }
 
+################################
+# Download and parse package
+# dependencies
+#
 prepare_packages() {
   PACKAGE_DIR="$BUILD_DIR/tcz"
   PACKAGE_LIST="$BUILD_DIR/package.list"
@@ -247,6 +264,9 @@ prepare_packages() {
   fi
 }
 
+################################
+# Extract rootfs
+#
 extract_rootfs() {
   local rootfs="$BUILD_DIR/rootfs"
   echo "Extracting rootfs..."
@@ -258,6 +278,9 @@ extract_rootfs() {
   exit_hook "rm -rf '$rootfs'"
 }
 
+################################
+# Apply packages on rootfs
+#
 apply_packages() {
   if [ b'true' == b"$F_APPLY_PACKAGES" ]
   then
@@ -266,6 +289,9 @@ apply_packages() {
   fi
 }
 
+################################
+# Apply user patchs
+#
 apply_additional_patchs() {
   if declare -f additional_patchs > /dev/null 2>&1
   then
@@ -273,12 +299,18 @@ apply_additional_patchs() {
   fi
 }
 
+################################
+# Packing new rootfs
+#
 generate_new_rootfs() {
   # repackage core into initrd.gz
   echo "Generating new rootfs"
   ( cd "$BUILD_DIR/rootfs" ; find -P . | cpio -o -H newc ) | gzip -c > "$BUILD_OUTPUT/initrd.gz"
 }
 
+################################
+# copy the core to dist
+#
 copy_core() {
   echo "Copying Linux core"
   cp "$BUILD_DIR/$TC_CORE" "$BUILD_OUTPUT/vmlinuz"
