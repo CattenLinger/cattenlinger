@@ -1,0 +1,234 @@
+#!/usr/bin/env node
+
+const process = require("node:process")
+const fs = require("fs/promises")
+const http = require("http");
+const {URL} = require("url");
+
+const print = s => process.stdout.write(s)
+const msg   = s => process.stderr.write(s)
+
+function printHelp() {
+    msg("Usage: gen-ollama [options] prompt.\n\n")
+    msg("Options: \n")
+    msg("    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n")
+    msg("    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n")
+    msg("    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n")
+    msg("\n")
+    msg("Note: '-' in arg list will stop param reading and take prompt from STDIN\n")
+    msg("\n")
+    msg("Env:\n")
+    msg("    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n")
+    msg("    LLM_KEEP_ALIVE            How long for keep LLM model in memory, default is '5m'.\n")
+    msg("\n")
+}
+//
+// Get Settings
+//
+function processArgs(args) {
+    const result = {}
+    if(!args || args.length <= 2) {
+        printHelp()
+        process.exit(1)
+    }
+    const lastArg = args[args.length - 1]
+    if(lastArg.substring(0, 2) === "--") {
+        printHelp()
+        process.exit(2)
+    }
+    if(lastArg !== '-') result.prompt = lastArg;
+
+    const options = args.slice(2, args.length - 1)
+    if(options.length <= 0) return result
+
+    let op, i;
+    function inbound(size) {
+        i += size
+        if(i < options.length) return i;
+
+        msg("Require value for option: " + op + "\n\n\n")
+        printHelp()
+
+        process.exit(3)
+    }
+    for (i = 0; i < options.length; i++) {
+        op = options[i]
+        switch (op) {
+            case "--out":
+                result.out = options[inbound(1)];
+                break;
+            case "--model" :
+                result.model = options[inbound(1)];
+                break;
+            case "--server" :
+                result.serverUrl = options[inbound(1)];
+                break;
+            case "-":
+                result.prompt = null;
+                return result;
+            default:
+                printHelp();
+                process.exit(4);
+                break;
+        }
+    }
+
+    return result
+}
+
+const buildConfig = () => {
+    const result = {}
+
+    result.serverUrl      = process.env["SERVER_URL"] || "http://10.0.20.1:11434"
+    result.model          = process.env["LLM_MODEL"]  || (msg("Please set the LLM model name.\n",process.exit(1)))
+    result.out            = process.env["OUT_FILE"]
+    result.systemPrompt   = process.env["LLM_SYSTEM_PROMPT_FILE"]
+    result.modelKeepAlive = process.env["LLM_KEEP_ALIVE"]
+
+    return { ...result, ...processArgs(process.argv) }
+}
+
+//
+// Json Streaming Helper
+//
+
+function fetchJsonStream(url, body, onData) {
+    const {hostname, port, pathname} = URL.parse(url)
+    let buffer = ''
+    const onEachData = (chunk, reject) => {
+        buffer += chunk
+
+        while (true) {
+            const newLineIndex = buffer.indexOf('\n');
+            if (newLineIndex === -1) break;
+
+            const line = buffer.slice(0, newLineIndex);
+            buffer = buffer.slice(newLineIndex + 1);
+
+            if (!line.trim()) continue;
+
+            try {
+                const obj = JSON.parse(line);
+                if(obj === null) continue;
+                onData(obj);
+            } catch (error) {
+                reject(new Error(`Invalid JSON in line: ${error.message}`))
+            }
+        }
+    }
+
+    const postBody = JSON.stringify(body) + '\n'
+
+    const options = {
+        hostname, port, path: pathname,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    }
+
+    return new Promise((resolve, reject) => {
+
+        const request = http.request(options, resp => {
+            if (resp.statusCode !== 200) {
+                let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
+                new Promise((r) => {
+                    err.on('data', c => errMsg+= c); err.on('end', r);
+                }).then(() => reject(`${errMsg} ]]`))
+                return
+            }
+
+            resp.on('data', chunk => onEachData(chunk, reject));
+            resp.on('end', () => {
+                if (buffer) reject(new Error("Incomplete JSON received"));
+                else resolve()
+            });
+        })
+        request.on('error', reject)
+
+        request.write(postBody, (error) => {
+            if (error) reject(error);
+        })
+        request.end()
+    })
+}
+
+//
+// Main
+//
+
+const postHooks = []
+
+;(async () => {
+    const config = buildConfig()
+    const { model } = config
+
+    //
+    // If has output file, open and prepare the writer
+    //
+    let dataWriter = async () => {}
+    const outFilePath = config.out
+    if(outFilePath) {
+        const file = await fs.open(outFilePath, 'w')
+        dataWriter = ((line) => file.write(`${line}\n`))
+        postHooks.push(() => {
+            file.sync()
+            file.close()
+            msg("[[ LLM Response saved to file '" + outFilePath + "' ]]")
+        })
+    }
+
+    msg(`Server : ${config.serverUrl}\n`)
+    msg(`Model  : ${model}\n`)
+    msg(`\n`)
+    const request = { model: config.model }
+
+    if(config.modelKeepAlive) request.keep_alive = config.modelKeepAlive
+
+    const messages = []
+    if(config.systemPrompt) {
+        const systemMessage = await fs.readFile(config.systemPrompt, { encoding: 'utf8' })
+        msg("<< System Role >>\n")
+        msg(systemMessage)
+        msg("\n=================\n\n")
+        messages.push({ role: "system", content: systemMessage })
+    }
+
+    let { prompt } = config
+    if (!prompt) {
+        prompt = ''
+        process.stdin.on('data', chunk => prompt += chunk)
+        await new Promise((resolve) => process.stdin.on('end', resolve))
+    }
+    messages.push({ role: "user", content: prompt })
+
+    if (messages.length <= 0) {
+        msg("Neither user prompt or system prompt is provided.")
+        process.exit(1)
+    }
+
+    request.messages = messages
+    msg(`<< Question : `)
+    msg(`${prompt}\n`)
+    msg(`>> Answer   : `)
+
+    // Write the request body to file
+    await dataWriter(JSON.stringify(request) + "\n")
+
+    // Request to server
+    await fetchJsonStream(`${config.serverUrl}/api/chat`, request, (data) => {
+        if (!data) return
+
+        dataWriter(JSON.stringify(data))
+            .then(() => {})
+            .catch((e) => msg("Fail to write line: " + e.message))
+
+        const {message, done} = data;
+
+        if (done) return msg("\n\n")
+        const { content } = message
+        print(content)
+    })
+
+    await Promise.all(postHooks)
+})().then(() => {}).catch(console.error);
