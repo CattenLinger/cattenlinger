@@ -163,6 +163,14 @@ function fetchJsonStream(url, headers ,body, onData) {
     })
 }
 
+function newEmptyOpenAIChatRequest(config) {
+    return {
+        model: config.model,
+        stream: true,
+        stream_options: { include_usage: true },
+    }
+}
+
 //
 // Main
 //
@@ -196,11 +204,7 @@ const postHooks = []
     //
     // The default OpenAI request content
     //
-    const request = {
-        model: config.model,
-        stream: true,
-        stream_options: { include_usage: true },
-    }
+    const request = newEmptyOpenAIChatRequest(config)
     const messages = []
 
     //
@@ -223,7 +227,7 @@ const postHooks = []
     messages.push({ role: "user", content: prompt })
 
     if (messages.length <= 0) {
-        msg("Neither user prompt or system prompt is provided.")
+        msg("Neither user prompt or system prompt is provided.\n")
         process.exit(1)
     }
 
@@ -233,14 +237,18 @@ const postHooks = []
     msg(`${prompt}\n`)
     msg(`>> Answer   : \n`)
 
+    // Write request body
+    await dataWriter(JSON.stringify(request) + "\n")
+
+    // Send the initial request
     await fetchJsonStream(`${config.serverUrl}/chat/completions`, {
         'Authorization': `Bearer ${config.apiKey}`
-    } ,request, (data) => {
+    } , request, (data) => {
         if (!data) return
 
         dataWriter(data)
             .then(() => {})
-            .catch((e) => msg("Fail to write line: " + e.message))
+            .catch((e) => msg("Fail to write line: " + e.message + "\n"))
 
         let fields = data.match(/^data:\s+?(.+)/)
         const [, payload] = fields
