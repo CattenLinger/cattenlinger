@@ -22,17 +22,22 @@ function printHelp() {
     msg("    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n")
     msg("    LLM_KEEP_ALIVE            How long for keep LLM model in memory, default is '5m'.\n")
     msg("    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'system'.\n")
+    msg("    LLM_CTX_WINDOW_SIZE       Context window size, default is 2048.\n")
     msg("\n")
+}
+function printHelpE(n) {
+    printHelp(); process.exit(n);
 }
 //
 // Get Settings
 //
 function processArgs(args) {
+    if(!args || args.length <= 2) return printHelpE(1);
+
     const result = {}
-    if(!args || args.length <= 2) return (printHelp(),process.exit(1));
 
     const lastArg = args[args.length - 1]
-    if(lastArg.substring(0, 2) === "--") return (printHelp(),process.exit(2));
+    if(lastArg.substring(0, 2) === "--") return printHelpE(2);
 
     if(lastArg !== '-') result.prompt = lastArg;
 
@@ -43,14 +48,9 @@ function processArgs(args) {
     function inbound(size) {
         i += size
         if(i < options.length) return i;
-
-        msg("Require value for option: " + op + "\n\n\n")
-        printHelp()
-
-        process.exit(3)
+        (msg("Require value for option: " + op + "\n\n\n"),printHelpE(3))
     }
-    for (i = 0; i < options.length; i++) {
-        op = options[i]
+    for ((i = 0, op = options[i]); i < options.length; i++) {
         switch (op) {
             case "--out":
                 result.out = options[inbound(1)];
@@ -87,15 +87,23 @@ const buildConfig = () => {
     result.modelKeepAlive = process.env["LLM_KEEP_ALIVE"]
     result.memoryFile     = process.env["LLM_CHAT_MEMORY"]
     result.systemRole     = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "system"
+    result.llmCtxSize     = process.env["LLM_CTX_WINDOW_SIZE"]
 
     return { ...result, ...processArgs(process.argv) }
 }
 
 //
+// Post Hooks
+//
+const [postHooks, postHook, runPostHooks] = [
+    [], (a) => { postHooks.push(a) }, () => Promise.all(postHooks.map((a) => a()))
+]
+
+//
 // Json Streaming Helper
 //
 
-function fetchJsonStream(url, body, onData) {
+function fetchJsonStream({url, body, headers, onData}) {
     const {hostname, port, pathname} = URL.parse(url)
     let buffer = ''
     const onEachData = (chunk, reject) => {
@@ -198,11 +206,51 @@ async function createMemory(config) {
 }
 
 //
-// Post Hooks
+// Response writer
 //
-const postHooks = [];
-function postHook(a) { postHooks.push(a) }
-async function runPostHooks() { await Promise.all(postHooks.map((a) => a())) }
+async function buildDataWriter(config) {
+    const outFilePath = config.out
+    if(!outFilePath) return () => { /* Noop */ }
+
+    const file = await fs.open(outFilePath, 'w')
+    postHook(async () => {
+        await file.sync();
+        await file.close();
+        msg("[[ LLM Response saved to file '" + outFilePath + "' ]]\n")
+    })
+    return ((line) => file.write(`${line}\n`))
+}
+
+//
+// Timer
+//
+
+function buildTimer() {
+    function start() { this.startTime = Date.now() }
+    function stop() { this.endTime = Date.now() }
+    function tick() {
+        const now = Date.now()
+        this.tps.push(now)
+        if(this.responseStart <= 0) {
+            this.responseStart = now;
+            return true
+        }
+        return false
+    }
+    function sum() {
+        const { tps, startTime, endTime } = this
+        const tpsDelta = []
+        for(let i = 0; i < (tps.length - 1); i++) tpsDelta.push(tps[i + 1] - tps[i])
+        const avg = Math.ceil(1000000 / (tpsDelta.reduce((p, c,) => p + c) / tpsDelta.length)) / 1000
+        const elapsed = Math.ceil(endTime - startTime) / 1000
+        return { avg, elapsed }
+    }
+    function ctxInitTime() {
+        const { startTime, responseStart } = this
+        return (Math.ceil(responseStart - startTime)) / 1000
+    }
+    return { startTime: 0, endTime: 0, responseStart: 0 ,tps: [], start, stop, tick, sum, ctxInitTime }
+}
 
 //
 // Main
@@ -211,24 +259,12 @@ async function runPostHooks() { await Promise.all(postHooks.map((a) => a())) }
 ;(async () => {
     const config = buildConfig()
     const { model } = config
-    if(!model) (msg("Please set the LLM model name.\n\n"),printHelp(),process.exit(5));
+    if(!model) (msg("Please set the LLM model name.\n\n"),printHelpE(5));
 
     //
     // If has output file, open and prepare the writer
     //
-    let dataWriter = await (async () => {
-        const outFilePath = config.out
-        if(outFilePath) {
-            const file = await fs.open(outFilePath, 'w')
-            postHook(async () => {
-                await file.sync();
-                await file.close();
-                msg("[[ LLM Response saved to file '" + outFilePath + "' ]]\n")
-            })
-            return ((line) => file.write(`${line}\n`))
-        }
-        return () => { /* Noop */ }
-    })()
+    let dataWriter = await buildDataWriter(config)
 
     msg(`Server : ${config.serverUrl}\n`)
     msg(`Model  : ${model}\n`)
@@ -238,6 +274,12 @@ async function runPostHooks() { await Promise.all(postHooks.map((a) => a())) }
 
     // Set the keep-alive if needed
     if(config.modelKeepAlive) request.keep_alive = config.modelKeepAlive
+    // Set context window size if present
+    if(config.llmCtxSize) {
+        const op = request.options || {}
+        op.num_ctx = parseInt(config.llmCtxSize)
+        request.options = op
+    }
 
     // Create memory (if needed)
     const chatMemory = await createMemory(config)
@@ -267,12 +309,9 @@ async function runPostHooks() { await Promise.all(postHooks.map((a) => a())) }
     messages.push(userMessage)
     if(chatMemory) chatMemory.userResponse(userMessage.content)
 
-    if (messages.length <= 0) {
-        msg("Neither user prompt or system prompt is provided.")
-        process.exit(1)
-    }
-
+    if (messages.length <= 0) (msg("Neither user prompt or system prompt is provided.\n"),process.exit(6))
     request.messages = messages
+
     msg(`<< Question : `)
     msg(`${prompt}\n`)
     msg(`>> Answer   : `)
@@ -280,24 +319,34 @@ async function runPostHooks() { await Promise.all(postHooks.map((a) => a())) }
     // Write the request body to file
     await dataWriter(JSON.stringify(request) + "\n")
 
-    // Request to server
-    await fetchJsonStream(`${config.serverUrl}/api/chat`, request, (data) => {
+    // Token speed counter
+    const timer = buildTimer()
+    timer.start()
+
+    const onData = (data) => {
         if (!data) return
 
-        dataWriter(JSON.stringify(data))
-            .then(() => {})
-            .catch((e) => msg("Fail to write line: " + e.message))
+        dataWriter(JSON.stringify(data)).then(() => {})
+            .catch((e) => msg(`[!] Fail to write line: ${e.message}\n`))
+
+        if(timer.tick()) msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
 
         const {message, done} = data;
 
         if (done) return msg("\n\n")
-        const { content } = message
+        const {content} = message
         print(content)
         chatMemory && chatMemory.appendAssistantOut(content)
-    })
+    }
 
-    postHook(() => chatMemory.saveAsync())
+    // Request to server
+    await fetchJsonStream({url: `${config.serverUrl}/api/chat`, body: request, onData})
+    timer.stop();
+
+    postHook(() => chatMemory.saveAsync());
+
+    (({ avg, elapsed}) => msg(`[[ Time elapsed: ${elapsed}s, Avg: ${avg} t/s ]]\n`))(timer.sum());
 
     // Trigger post hooks
-    await Promise.all(postHooks.map((a) => a()))
+    await runPostHooks()
 })().then(() => {}).catch(console.error);
