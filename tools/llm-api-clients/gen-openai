@@ -1,0 +1,258 @@
+#!/usr/bin/env node
+
+const process = require("node:process")
+const fs = require("fs/promises")
+const http = require("https");
+const {URL} = require("url");
+
+const print = s => process.stdout.write(s)
+const msg   = s => process.stderr.write(s)
+
+function printHelp() {
+    msg("Usage: gen-openai [options] prompt.\n\n")
+    msg("Options: \n")
+    msg("    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n")
+    msg("    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n")
+    msg("    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n")
+    msg("\n")
+    msg("Note: '-' in arg list will stop param reading and take prompt from STDIN\n")
+    msg("\n")
+    msg("Env:\n")
+    msg("    OPENAI_API_KEY            OpenAI API Key, required.\n")
+    msg("    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n")
+    msg("    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'developer' (for old models please use 'system').\n")
+    msg("\n")
+}
+//
+// Get Settings
+//
+function processArgs(args) {
+    const result = {}
+    if(!args || args.length <= 2) {
+        printHelp()
+        process.exit(1)
+    }
+    const lastArg = args[args.length - 1]
+    if(lastArg.substring(0, 2) === "--") {
+        printHelp()
+        process.exit(2)
+    }
+    if(lastArg !== '-') result.prompt = lastArg;
+
+    const options = args.slice(2, args.length - 1)
+    if(options.length <= 0) return result
+
+    let op, i;
+    function inbound(size) {
+        i += size
+        if(i < options.length) return i;
+
+        msg("Require value for option: " + op + "\n\n\n")
+        printHelp()
+
+        process.exit(3)
+    }
+    for (i = 0; i < options.length; i++) {
+        op = options[i]
+        switch (op) {
+            case "--out":
+                result.out = options[inbound(1)];
+                break;
+            case "--model" :
+                result.model = options[inbound(1)];
+                break;
+            case "--server" :
+                result.serverUrl = options[inbound(1)];
+                break;
+            case "-":
+                result.prompt = null;
+                return result;
+            default:
+                printHelp();
+                process.exit(4);
+                break;
+        }
+    }
+
+    return result
+}
+
+const buildConfig = () => {
+    const result = {}
+
+    result.serverUrl    = process.env["SERVER_URL"] || "https://api.openai.com/v1"
+    result.model        = process.env["LLM_MODEL"]      || "gpt-4o-mini"
+    result.out          = process.env["OUT_FILE"]
+    result.systemPrompt = process.env["LLM_SYSTEM_PROMPT_FILE"]
+    result.apiKey       = process.env["OPENAI_API_KEY"] || (msg("Please specify OPENAI_API_KEY.\n"),process.exit(1))
+    result.systemRole   = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "developer"
+
+    return { ...result, ...processArgs(process.argv) }
+}
+
+//
+// Json Streaming Helper
+//
+
+function fetchJsonStream(url, headers ,body, onData) {
+    const {hostname, port, pathname} = URL.parse(url)
+    let buffer = ''
+
+    //
+    // Method to handle each line
+    //
+    const onEachData = (chunk) => {
+        buffer += chunk
+
+        while (true) {
+            const newLineIndex = buffer.indexOf('\n');
+            if (newLineIndex === -1) break;
+
+            const line = buffer.slice(0, newLineIndex);
+            buffer = buffer.slice(newLineIndex + 1);
+
+            const payload = line.trim()
+            if (!payload) continue;
+            onData(payload);
+        }
+    }
+
+    //
+    // Build request options
+    //
+    const options = {
+        hostname, port, path: pathname,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...headers
+        }
+    }
+
+    //
+    // Build HTTP request body
+    //
+    const postBody = JSON.stringify(body) + '\n'
+
+    //
+    // Build the request task
+    //
+    return new Promise((resolve, reject) => {
+
+        const request = http.request(options, resp => {
+            if (resp.statusCode !== 200) {
+                let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
+                new Promise((r) => {
+                    resp.on('data', c => errMsg+= c); resp.on('end', r);
+                }).then(() => reject(`${errMsg} ]]`))
+                return
+            }
+
+            resp.on('data', onEachData);
+            resp.on('end', () => {
+                if (buffer) reject(new Error("Incomplete JSON received: " + buffer));
+                else resolve()
+            });
+        })
+        request.on('error', reject)
+
+        request.write(postBody, (error) => {
+            if (error) reject(error);
+        })
+        request.end()
+    })
+}
+
+//
+// Main
+//
+
+const postHooks = []
+
+;(async () => {
+    const config = buildConfig()
+    const { model } = config
+
+    //
+    // If has data output file, open the file and set a
+    // file writer
+    //
+    let dataWriter = async () => {}
+    const outFilePath = config.out
+    if(outFilePath) {
+        const file = await fs.open(outFilePath, 'w')
+        dataWriter = ((line) => file.write(`${line}\n`))
+        postHooks.push(() => {
+            file.sync()
+            file.close()
+            msg("[[ LLM Response saved to file '" + outFilePath + "' ]]")
+        })
+    }
+
+    msg(`Server : ${config.serverUrl}\n`)
+    msg(`Model  : ${model}\n`)
+    msg(`\n`)
+
+    //
+    // The default OpenAI request content
+    //
+    const request = {
+        model: config.model,
+        stream: true,
+        stream_options: { include_usage: true },
+    }
+    const messages = []
+
+    //
+    // If system prompt present, read and prepare it from file.
+    //
+    if(config.systemPrompt) {
+        const systemMessage = await fs.readFile(config.systemPrompt, { encoding: 'utf8' })
+        msg("<< System Role >>\n")
+        msg(systemMessage)
+        msg("\n=================\n\n")
+        messages.push({ role: config.systemRole, content: systemMessage })
+    }
+
+    let { prompt } = config
+    if (!prompt) {
+        prompt = ''
+        process.stdin.on('data', chunk => prompt += chunk)
+        await new Promise((resolve) => process.stdin.on('end', resolve))
+    }
+    messages.push({ role: "user", content: prompt })
+
+    if (messages.length <= 0) {
+        msg("Neither user prompt or system prompt is provided.")
+        process.exit(1)
+    }
+
+    request.messages = messages
+
+    msg(`<< Question : `)
+    msg(`${prompt}\n`)
+    msg(`>> Answer   : \n`)
+
+    await fetchJsonStream(`${config.serverUrl}/chat/completions`, {
+        'Authorization': `Bearer ${config.apiKey}`
+    } ,request, (data) => {
+        if (!data) return
+
+        dataWriter(data)
+            .then(() => {})
+            .catch((e) => msg("Fail to write line: " + e.message))
+
+        let fields = data.match(/^data:\s+?(.+)/)
+        const [, payload] = fields
+        if(payload === "[DONE]") return msg("\n\n")
+
+        const {choices} = JSON.parse(payload);
+        if(choices.length <= 0) return
+
+        const { delta } = choices[0]
+        if(!delta.content) return
+        print(delta.content)
+    })
+
+    await Promise.all(postHooks)
+})().then(() => {}).catch(console.error);
