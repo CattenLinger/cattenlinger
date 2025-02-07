@@ -27,15 +27,11 @@ function printHelp() {
 //
 function processArgs(args) {
     const result = {}
-    if(!args || args.length <= 2) {
-        printHelp()
-        process.exit(1)
-    }
+    if(!args || args.length <= 2) return (printHelp(),process.exit(1));
+
     const lastArg = args[args.length - 1]
-    if(lastArg.substring(0, 2) === "--") {
-        printHelp()
-        process.exit(2)
-    }
+    if(lastArg.substring(0, 2) === "--") return (printHelp(),process.exit(2));
+
     if(lastArg !== '-') result.prompt = lastArg;
 
     const options = args.slice(2, args.length - 1)
@@ -80,7 +76,7 @@ const buildConfig = () => {
     const result = {}
 
     result.serverUrl      = process.env["SERVER_URL"] || "http://10.0.20.1:11434"
-    result.model          = process.env["LLM_MODEL"]  || (msg("Please set the LLM model name.\n",process.exit(1)))
+    result.model          = process.env["LLM_MODEL"] 
     result.out            = process.env["OUT_FILE"]
     result.systemPrompt   = process.env["LLM_SYSTEM_PROMPT_FILE"]
     result.modelKeepAlive = process.env["LLM_KEEP_ALIVE"]
@@ -162,6 +158,7 @@ const postHooks = []
 ;(async () => {
     const config = buildConfig()
     const { model } = config
+    if(!model) (msg("Please set the LLM model name.\n\n"),printHelp(),process.exit(5));
 
     //
     // If has output file, open and prepare the writer
