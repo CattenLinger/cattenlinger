@@ -14,12 +14,14 @@ function printHelp() {
     msg("    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n")
     msg("    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n")
     msg("    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n")
+    msg("    --memory MEMORY_FILE   Use the given file to save the chat for continue (env: LLM_MEMORY_FILE)\n")
     msg("\n")
     msg("Note: '-' in arg list will stop param reading and take prompt from STDIN\n")
     msg("\n")
     msg("Env:\n")
     msg("    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n")
     msg("    LLM_KEEP_ALIVE            How long for keep LLM model in memory, default is '5m'.\n")
+    msg("    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'system'.\n")
     msg("\n")
 }
 //
@@ -59,6 +61,9 @@ function processArgs(args) {
             case "--server" :
                 result.serverUrl = options[inbound(1)];
                 break;
+            case "--memory":
+                result.memoryFile = options[inbound(1)];
+                break;
             case "-":
                 result.prompt = null;
                 return result;
@@ -80,6 +85,8 @@ const buildConfig = () => {
     result.out            = process.env["OUT_FILE"]
     result.systemPrompt   = process.env["LLM_SYSTEM_PROMPT_FILE"]
     result.modelKeepAlive = process.env["LLM_KEEP_ALIVE"]
+    result.memoryFile     = process.env["LLM_CHAT_MEMORY"]
+    result.systemRole     = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "system"
 
     return { ...result, ...processArgs(process.argv) }
 }
@@ -129,7 +136,7 @@ function fetchJsonStream(url, body, onData) {
             if (resp.statusCode !== 200) {
                 let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
                 new Promise((r) => {
-                    err.on('data', c => errMsg+= c); err.on('end', r);
+                    resp.on('data', c => errMsg+= c); resp.on('end', r);
                 }).then(() => reject(`${errMsg} ]]`))
                 return
             }
@@ -149,11 +156,57 @@ function fetchJsonStream(url, body, onData) {
     })
 }
 
+async function createMemory(config) {
+    const { memoryFile } = config
+    if(!memoryFile) return null
+
+    let memory = {}
+    try {
+        msg("[[ Chat memory: '" + memoryFile + "' ]]\n")
+        await fs.access(memoryFile)
+        const content = await fs.readFile(memoryFile, 'utf8')
+        const jsonContent = JSON.parse(content)
+        if(typeof jsonContent === 'object' && jsonContent !== null) memory = jsonContent
+    } catch (e) {
+        // Do nothing
+    }
+    if(!memory.messages) memory.messages = []
+
+    async function saveAsync() {
+        // Push the assistant response
+        if(this.responseBuffer) this.messages.push({ "role" : "assistant", content: this.responseBuffer })
+
+        const memory = { messages: this.messages }
+        await fs.writeFile(memoryFile, JSON.stringify(memory))
+        msg("[[ Chat history saved: '" + memoryFile + "' ]]\n")
+    }
+
+    function appendAssistantOut(str) {
+        if(!this.responseBuffer) this.responseBuffer = ""
+        this.responseBuffer += str
+    }
+
+    function toolResponse(content) {
+        this.messages.push({"role":"tool_call", content})
+    }
+
+    function userResponse(content) {
+        this.messages.push({"role":"user", content})
+    }
+
+    return { messages: memory.messages || [], responseBuffer: null , appendAssistantOut, toolResponse, userResponse, saveAsync }
+}
+
+//
+// Post Hooks
+//
+const postHooks = [];
+function postHook(a) { postHooks.push(a) }
+async function runPostHooks() { await Promise.all(postHooks.map((a) => a())) }
+
 //
 // Main
 //
-
-const postHooks = []
 
 ;(async () => {
     const config = buildConfig()
@@ -163,32 +216,45 @@ const postHooks = []
     //
     // If has output file, open and prepare the writer
     //
-    let dataWriter = async () => {}
-    const outFilePath = config.out
-    if(outFilePath) {
-        const file = await fs.open(outFilePath, 'w')
-        dataWriter = ((line) => file.write(`${line}\n`))
-        postHooks.push(() => {
-            file.sync()
-            file.close()
-            msg("[[ LLM Response saved to file '" + outFilePath + "' ]]")
-        })
-    }
+    let dataWriter = await (async () => {
+        const outFilePath = config.out
+        if(outFilePath) {
+            const file = await fs.open(outFilePath, 'w')
+            postHook(async () => {
+                await file.sync();
+                await file.close();
+                msg("[[ LLM Response saved to file '" + outFilePath + "' ]]\n")
+            })
+            return ((line) => file.write(`${line}\n`))
+        }
+        return () => { /* Noop */ }
+    })()
 
     msg(`Server : ${config.serverUrl}\n`)
     msg(`Model  : ${model}\n`)
     msg(`\n`)
+
     const request = { model: config.model }
 
+    // Set the keep-alive if needed
     if(config.modelKeepAlive) request.keep_alive = config.modelKeepAlive
 
+    // Create memory (if needed)
+    const chatMemory = await createMemory(config)
+
+    // Prepare message
     const messages = []
     if(config.systemPrompt) {
         const systemMessage = await fs.readFile(config.systemPrompt, { encoding: 'utf8' })
-        msg("<< System Role >>\n")
+        msg(`<< System Role (${config.systemRole}) >>\n`)
         msg(systemMessage)
         msg("\n=================\n\n")
-        messages.push({ role: "system", content: systemMessage })
+        messages.push({ role: config.systemRole, content: systemMessage })
+    }
+    // If has memory, restore the memory
+    if(chatMemory && (chatMemory.messages.length > 0)) {
+        for(const e of chatMemory.messages) messages.push(e);
+        msg(`[[ Restored ${chatMemory.messages.length} chat histories. ]]\n`)
     }
 
     let { prompt } = config
@@ -197,7 +263,9 @@ const postHooks = []
         process.stdin.on('data', chunk => prompt += chunk)
         await new Promise((resolve) => process.stdin.on('end', resolve))
     }
-    messages.push({ role: "user", content: prompt })
+    const userMessage = { role: "user", content: prompt }
+    messages.push(userMessage)
+    if(chatMemory) chatMemory.userResponse(userMessage.content)
 
     if (messages.length <= 0) {
         msg("Neither user prompt or system prompt is provided.")
@@ -225,7 +293,11 @@ const postHooks = []
         if (done) return msg("\n\n")
         const { content } = message
         print(content)
+        chatMemory && chatMemory.appendAssistantOut(content)
     })
 
-    await Promise.all(postHooks)
+    postHook(() => chatMemory.saveAsync())
+
+    // Trigger post hooks
+    await Promise.all(postHooks.map((a) => a()))
 })().then(() => {}).catch(console.error);

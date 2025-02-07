@@ -1,3 +1,6 @@
 profile
 *.llmresp.txt
 prompt.txt
+*.iml
+.idea
+*.chatmem.json
