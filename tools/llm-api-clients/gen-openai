@@ -1,37 +1,305 @@
 #!/usr/bin/env node
 
-// This minified js is just the same code as ./gen-ollama
+const process = require("node:process")
+const fs = require("fs/promises")
+const http = require("https");
+
+const print = s => process.stdout.write(s)
+const msg = s => process.stderr.write(s)
+
+// Post Hook
+const [postHooks, postHook, runPostHooks] = [[], (a) => postHooks.push(a), () => Promise.all(postHooks.map((a) => a()))]
+
+// Help Print
+const [printHelp, printHelpE] = [() => msg(global.HELP_MESSAGE), (n) => (printHelp(), process.exit(n))]
 
 //
-// START
+// Get Settings
 //
-const process=require("node:process"),fs=require("fs/promises"),http=require("https");let URL=require("url").URL;const print=e=>process.stdout.write(e),msg=e=>process.stderr.write(e);
-let[postHooks,postHook,runPostHooks]=[[],e=>postHooks.push(e),()=>Promise.all(postHooks.map(e=>e()))],[printHelp,printHelpE]=[()=>msg(global.HELP_MESSAGE),e=>(printHelp(),process.exit(e))];
-function processArgs(e,r){if(!e||e.length<=2)return printHelpE(1);var n={},s=e[e.length-1];if("--"===s.substring(0,2))return printHelpE(2);"-"!==s&&(n.prompt=s);const o=e.slice(2,e.length-1);
-if(!(o.length<=0)){let s,t;for(t=0,s=o[t];t<o.length;t++){if("-"===s)return n.prompt=null,n;var i=r[s];i||printHelpE(4),i(n,a)}function a(e){if((t+=e)<o.length)return o[t];
-msg("Require value for option: "+s+"\n\n\n"),printHelpE(3)}}return n}const buildConfig=(e,s)=>{var t={};return e(t),{...t,...processArgs(process.argv,s)}};
-function fetchJsonStream({url:e,body:s,headers:t,onData:r}){var{hostname:e,port:n,pathname:o}=URL.parse(e);let i="";const a=e=>{for(i+=e;;){var s=i.indexOf("\n");if(s<0)break;var t=i.slice(0,s);
-i=i.slice(s+1),t.trim()&&r(t)}},p=JSON.stringify(s)+"\n",l={hostname:e,port:n,path:o,method:"POST",headers:{"Content-Type":"application/json",...t||{}}};
-return new Promise((e,r)=>{var s=http.request(l,t=>{if(200!==t.statusCode){let s=`[[ HTTP STATUS ${t.statusCode}, RESPONSE `;void new Promise(e=>{t.on("data",e=>s+=e),t.on("end",e)}).then(()=>r(`${s} ]]`))}
-else t.on("data",a),t.on("end",()=>{i?r(new Error("Incomplete JSON received")):e()})});s.on("error",r),s.write(p,e=>e?r(e):null),s.end()})}async function createMemory(e){let s=e.memoryFile;
-if(!s)return null;let t={};try{msg("[[ Chat memory: '"+s+"' ]]\n"),await fs.access(s);var r=await fs.readFile(s,"utf8"),n=JSON.parse(r);"object"==typeof n&&null!==n&&(t=n)}catch(e){}return t.messages||(t.messages=[]),
-{messages:t.messages||[],responseBuffer:null,appendAssistantOut:function(e){this.responseBuffer||(this.responseBuffer=""),this.responseBuffer+=e},toolResponse:function(e){this.messages.push({role:"tool_call",content:e})},
-userResponse:function(e){this.messages.push({role:"user",content:e})},saveAsync:async function(){this.responseBuffer&&this.messages.push({role:"assistant",content:this.responseBuffer});var e={messages:this.messages};
-await fs.writeFile(s,JSON.stringify(e)),msg("[[ Chat history saved: '"+s+"' ]]\n")}}}async function buildDataWriter(e){const s=e.out;if(!s)return()=>{};const t=await fs.open(s,"w");return postHook(async()=>{await t.sync(),
-await t.close(),msg("[[ LLM Response saved to file '"+s+"' ]]\n")}),e=>t.write(`${e}\n`)}function buildTimer(){return{startTime:0,endTime:0,responseStart:0,tps:[],start:function(){this.startTime=Date.now()},
-stop:function(){this.endTime=Date.now()},tick:function(){var e=Date.now();return this.tps.push(e),this.responseStart<=0&&(this.responseStart=e,!0)},sum:function(){var{tps:s,startTime:e,endTime:t}=this,r=[];
-for(let e=0;e<s.length-1;e++)r.push(s[e+1]-s[e]);return{avg:Math.ceil(1e6/(r.reduce((e,s)=>e+s)/r.length))/1e3,elapsed:Math.ceil(t-e)/1e3}},ctxInitTime:function(){var{startTime:e,responseStart:s}=this;
-return Math.ceil(s-e)/1e3}}}async function main(){var{envProcessor:e,argTable:s,helpMessage:t}=this;global.HELP_MESSAGE=t();const r={};t=buildConfig(e,s),e=t.model,e||(msg("Please set the LLM model name.\n\n"),
-printHelpE(5)),s=await buildDataWriter(r.config=t);r.dataWriter=s,msg(`Server : ${t.serverUrl}\n`),msg(`Model  : ${e}\n`),msg(`\n`);const n=await createMemory(t);r.chatMemory=n;var o=[],i=(r.messages=o,this)
-.onSetPrompt;if(t.systemPrompt&&(e=await fs.readFile(t.systemPrompt,{encoding:"utf8"}),msg(`<< System Role (${t.systemRole}) >>\n`),msg(e),msg("\n=================\n\n"),o.push(await i(r,{role:t.systemRole,content:e})))
-,n&&0<n.messages.length){for(const c of n.messages)o.push(await i(r,c));msg(`[[ Restored ${n.messages.length} chat histories. ]]\n`)}let a=t.prompt;a||(a="",process.stdin.on("data",e=>a+=e),
-await new Promise(e=>process.stdin.on("end",e)));e=await i(r,{role:"user",content:a}),o.push(e),n&&n.userResponse(e.content),o.length<=0&&(msg("Neither user prompt or system prompt is provided.\n"),process.exit(6)),
-t=buildTimer();r.timer=t;let{incomeHandler:p,requestBuilder:l,buildApiUrl:u,buildRequestHeaders:m}=this;var e={};r.request=e,await l(r),msg(`<< Question : `),msg(`${a}\n`),msg(`>> Answer   : `);
-await s(JSON.stringify(e)+"\n"),t.start(),await fetchJsonStream({url:await u(r),body:e,headers:m?await m(r):null,onData:e=>p(r,e)}),t.stop(),postHook(()=>n&&n.saveAsync()),({avg:s,elapsed:e}=t.sum()),
-msg(`[[ Time elapsed: ${e}s, Avg: ${s} t/s ]]\n`),await runPostHooks()}
+function processArgs(args, argList) {
+    if (!args || args.length <= 2) return printHelpE(1);
+    const result = {}
+    const lastArg = args[args.length - 1]
+    if (lastArg.substring(0, 2) === "--") return printHelpE(2);
+    if (lastArg !== '-') result.prompt = lastArg;
+    const options = args.slice(2, args.length - 1)
+    if (options.length <= 0) return result
+    let op, i;
+
+    function inbound(size) {
+        i += size
+        if (i < options.length) return options[i];
+        (msg("Require value for option: " + op + "\n\n\n"), printHelpE(3))
+    }
+
+    for ((i = 0, op = options[i]); i < options.length; i++) {
+        if (op === '-') {
+            result.prompt = null
+            return result;
+        }
+        const h = argList[op]
+        if (!h) printHelpE(4);
+        h(result, inbound)
+    }
+    return result
+}
+
+const buildConfig = (envProcessor, argTable) => {
+    const result = {}
+    envProcessor(result)
+    return {...result, ...processArgs(process.argv, argTable)}
+}
+
 //
-// END
+// Json Streaming Helper
 //
+
+function fetchJsonStream({url, body, headers, onData}) {
+
+    let buffer = ''
+    const onEachData = (chunk) => {
+        buffer += chunk
+
+        while (true) {
+            const newLineIndex = buffer.indexOf('\n');
+            if (newLineIndex < 0) break;
+
+            const line = buffer.slice(0, newLineIndex);
+            buffer = buffer.slice(newLineIndex + 1);
+
+            if (!line.trim()) continue;
+            onData(line);
+        }
+    }
+
+    const postBody = JSON.stringify(body) + '\n'
+
+    const options = {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', ...(headers ? headers : {})}
+    }
+
+    return new Promise((resolve, reject) => {
+        const request = http.request(url, options, resp => {
+            if (resp.statusCode !== 200) {
+                let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
+                new Promise((r) => {
+                    resp.on('data', c => errMsg += c);
+                    resp.on('end', r);
+                }).then(() => reject(`${errMsg} ]]`))
+                return
+            }
+            resp.on('data', onEachData);
+            resp.on('end', () => {
+                if (buffer) reject(new Error("Incomplete JSON received"));
+                else resolve()
+            });
+        })
+        request.on('error', reject)
+        request.write(postBody, error => error ? reject(error) : null)
+        request.end()
+    })
+}
+
+async function createMemory(config) {
+    const {memoryFile} = config
+    if (!memoryFile) return null
+
+    let memory = {}
+    try {
+        msg("[[ Chat memory: '" + memoryFile + "' ]]\n")
+        await fs.access(memoryFile)
+        const content = await fs.readFile(memoryFile, 'utf8')
+        const jsonContent = JSON.parse(content)
+        if (typeof jsonContent === 'object' && jsonContent !== null) memory = jsonContent
+    } catch (e) {
+        // Do nothing
+    }
+    if (!memory.messages) memory.messages = []
+
+    async function saveAsync() {
+        // Push the assistant response
+        if (this.responseBuffer) this.messages.push({"role": "assistant", content: this.responseBuffer})
+
+        const memory = {messages: this.messages}
+        await fs.writeFile(memoryFile, JSON.stringify(memory))
+        msg("[[ Chat history saved: '" + memoryFile + "' ]]\n")
+    }
+
+    function appendAssistantOut(str) {
+        if (!this.responseBuffer) this.responseBuffer = ""
+        this.responseBuffer += str
+    }
+
+    function toolResponse(content) {
+        this.messages.push({"role": "tool_call", content})
+    }
+
+    function userResponse(content) {
+        this.messages.push({"role": "user", content})
+    }
+
+    return {
+        messages: memory.messages || [],
+        responseBuffer: null,
+        appendAssistantOut,
+        toolResponse,
+        userResponse,
+        saveAsync
+    }
+}
+
+//
+// Response writer
+//
+async function buildDataWriter(config) {
+    const outFilePath = config.out
+    if (!outFilePath) return () => { /* Noop */
+    }
+
+    const file = await fs.open(outFilePath, 'w')
+    postHook(async () => {
+        await file.sync();
+        await file.close();
+        msg("[[ LLM Response saved to file '" + outFilePath + "' ]]\n")
+    })
+    return ((line) => file.write(`${line}\n`))
+}
+
+//
+// Timer
+//
+
+function buildTimer() {
+    function start() {
+        this.startTime = Date.now()
+    }
+
+    function stop() {
+        this.endTime = Date.now()
+    }
+
+    function tick() {
+        const now = Date.now()
+        this.tps.push(now)
+        if (this.responseStart <= 0) {
+            this.responseStart = now;
+            return true
+        }
+        return false
+    }
+
+    function sum() {
+        const {tps, startTime, endTime} = this
+        const tpsDelta = []
+        for (let i = 0; i < (tps.length - 1); i++) tpsDelta.push(tps[i + 1] - tps[i])
+        const avg = Math.ceil(1000000 / (tpsDelta.reduce((p, c,) => p + c) / tpsDelta.length)) / 1000
+        const elapsed = Math.ceil(endTime - startTime) / 1000
+        return {avg, elapsed}
+    }
+
+    function ctxInitTime() {
+        const {startTime, responseStart} = this
+        return (Math.ceil(responseStart - startTime)) / 1000
+    }
+
+    return {startTime: 0, endTime: 0, responseStart: 0, tps: [], start, stop, tick, sum, ctxInitTime}
+}
+
+//
+// Main
+//
+
+async function main() {
+    const {envProcessor, argTable, helpMessage} = this
+    global.HELP_MESSAGE = helpMessage()
+
+    const ctx = {}
+
+    const config = buildConfig(envProcessor, argTable)
+    const {model} = config
+    if (!model) (msg("Please set the LLM model name.\n\n"), printHelpE(5));
+
+    ctx.config = config
+    //
+    // If has output file, open and prepare the writer
+    //
+    let dataWriter = await buildDataWriter(config)
+    ctx.dataWriter = dataWriter
+
+    msg(`Server : ${config.serverUrl}\n`)
+    msg(`Model  : ${model}\n`)
+    msg(`\n`)
+
+    // Create memory (if needed)
+    const chatMemory = await createMemory(config)
+    ctx.chatMemory = chatMemory
+
+    // Prepare message
+    const messages = []
+    ctx.messages = messages
+
+    const {onSetPrompt} = this
+
+    if (config.systemPrompt) {
+        const systemMessage = await fs.readFile(config.systemPrompt, {encoding: 'utf8'})
+        msg(`<< System Role >>\n`)
+        msg(systemMessage)
+        msg("\n=================\n\n")
+        ctx.systemPrompt = systemMessage
+    }
+
+    // If has memory, restore the memory
+    if (chatMemory && (chatMemory.messages.length > 0)) {
+        for (const e of chatMemory.messages) messages.push(await onSetPrompt(ctx, e));
+        msg(`[[ Restored ${chatMemory.messages.length} chat histories. ]]\n`)
+    }
+
+    let {prompt} = config
+    if (!prompt) {
+        prompt = ''
+        process.stdin.on('data', chunk => prompt += chunk)
+        await new Promise((resolve) => process.stdin.on('end', resolve))
+    }
+    const userMessage = await onSetPrompt(ctx, {role: "user", content: prompt})
+    messages.push(userMessage)
+    if (chatMemory) chatMemory.userResponse(userMessage.content)
+
+    if (messages.length <= 0) (msg("Neither user prompt or system prompt is provided.\n"), process.exit(6))
+
+    // Token speed counter
+    const timer = buildTimer()
+    ctx.timer = timer
+
+    const {incomeHandler, requestBuilder, buildApiUrl, buildRequestHeaders} = this
+
+    // Build the request
+    const request = {}
+    ctx.request = request
+    await requestBuilder(ctx)
+
+    msg(`<< Question : `)
+    msg(`${prompt}\n`)
+    msg(`>> Answer   : `)
+
+    const onData = line => incomeHandler(ctx, line)
+    // Write the request body to file
+    await dataWriter(JSON.stringify(request) + "\n")
+
+    timer.start()
+    // Request to server
+    await fetchJsonStream({
+        url: await buildApiUrl(ctx),
+        body: request,
+        headers: buildRequestHeaders ? await buildRequestHeaders(ctx) : null,
+        onData
+    })
+
+    timer.stop();
+    if(chatMemory) postHook(() => chatMemory.saveAsync());
+    (({avg, elapsed}) => msg(`[[ Time elapsed: ${elapsed}s, Avg: ${avg} t/s ]]\n`))(timer.sum());
+    await runPostHooks() // Trigger post hooks
+}
 
 configuration = {
     helpMessage : () =>
