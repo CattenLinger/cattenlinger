@@ -1,0 +1,381 @@
+#!/usr/bin/env node
+
+const process = require("node:process")
+const fs = require("fs/promises")
+const http = require("https");
+
+const print = s => process.stdout.write(s)
+const msg = s => process.stderr.write(s)
+
+// Post Hook
+const [postHooks, postHook, runPostHooks] = [[], (a) => postHooks.push(a), () => Promise.all(postHooks.map((a) => a()))]
+
+// Help Print
+const [printHelp, printHelpE] = [() => msg(global.HELP_MESSAGE), (n) => (printHelp(), process.exit(n))]
+
+//
+// Get Settings
+//
+function processArgs(args, argList) {
+    if (!args || args.length <= 2) return printHelpE(1);
+    const result = {}
+    const lastArg = args[args.length - 1]
+    if (lastArg.substring(0, 2) === "--") return printHelpE(2);
+    if (lastArg !== '-') result.prompt = lastArg;
+    const options = args.slice(2, args.length - 1)
+    if (options.length <= 0) return result
+    let op, i;
+
+    function inbound(size) {
+        i += size
+        if (i < options.length) return options[i];
+        (msg("Require value for option: " + op + "\n\n\n"), printHelpE(3))
+    }
+
+    for ((i = 0, op = options[i]); i < options.length; i++) {
+        if (op === '-') {
+            result.prompt = null
+            return result;
+        }
+        const h = argList[op]
+        if (!h) printHelpE(4);
+        h(result, inbound)
+    }
+    return result
+}
+
+const buildConfig = (envProcessor, argTable) => {
+    const result = {}
+    envProcessor(result)
+    return {...result, ...processArgs(process.argv, argTable)}
+}
+
+//
+// Json Streaming Helper
+//
+
+function fetchJsonStream({url, body, headers, onData}) {
+
+    let buffer = ''
+    const onEachData = (chunk) => {
+        buffer += chunk
+
+        while (true) {
+            const newLineIndex = buffer.indexOf('\n');
+            if (newLineIndex < 0) break;
+
+            const line = buffer.slice(0, newLineIndex);
+            buffer = buffer.slice(newLineIndex + 1);
+
+            if (!line.trim()) continue;
+            onData(line);
+        }
+    }
+
+    const postBody = JSON.stringify(body) + '\n'
+
+    const options = {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', ...(headers ? headers : {})}
+    }
+
+    return new Promise((resolve, reject) => {
+        const request = http.request(url, options, resp => {
+            if (resp.statusCode !== 200) {
+                let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
+                new Promise((r) => {
+                    resp.on('data', c => errMsg += c);
+                    resp.on('end', r);
+                }).then(() => reject(`${errMsg} ]]`))
+                return
+            }
+            resp.on('data', onEachData);
+            resp.on('end', () => {
+                if (buffer) reject(new Error("Incomplete JSON received"));
+                else resolve()
+            });
+        })
+        request.on('error', reject)
+        request.write(postBody, error => error ? reject(error) : null)
+        request.end()
+    })
+}
+
+async function createMemory(config) {
+    const {memoryFile} = config
+    if (!memoryFile) return null
+
+    let memory = {}
+    try {
+        msg("[[ Chat memory: '" + memoryFile + "' ]]\n")
+        await fs.access(memoryFile)
+        const content = await fs.readFile(memoryFile, 'utf8')
+        const jsonContent = JSON.parse(content)
+        if (typeof jsonContent === 'object' && jsonContent !== null) memory = jsonContent
+    } catch (e) {
+        // Do nothing
+    }
+    if (!memory.messages) memory.messages = []
+
+    async function saveAsync() {
+        // Push the assistant response
+        if (this.responseBuffer) this.messages.push({"role": "assistant", content: this.responseBuffer})
+
+        const memory = {messages: this.messages}
+        await fs.writeFile(memoryFile, JSON.stringify(memory))
+        msg("[[ Chat history saved: '" + memoryFile + "' ]]\n")
+    }
+
+    function appendAssistantOut(str) {
+        if (!this.responseBuffer) this.responseBuffer = ""
+        this.responseBuffer += str
+    }
+
+    function toolResponse(content) {
+        this.messages.push({"role": "tool_call", content})
+    }
+
+    function userResponse(content) {
+        this.messages.push({"role": "user", content})
+    }
+
+    return {
+        messages: memory.messages || [],
+        responseBuffer: null,
+        appendAssistantOut,
+        toolResponse,
+        userResponse,
+        saveAsync
+    }
+}
+
+//
+// Response writer
+//
+async function buildDataWriter(config) {
+    const outFilePath = config.out
+    if (!outFilePath) return () => { /* Noop */
+    }
+
+    const file = await fs.open(outFilePath, 'w')
+    postHook(async () => {
+        await file.sync();
+        await file.close();
+        msg("[[ LLM Response saved to file '" + outFilePath + "' ]]\n")
+    })
+    return ((line) => file.write(`${line}\n`))
+}
+
+//
+// Timer
+//
+
+function buildTimer() {
+    function start() {
+        this.startTime = Date.now()
+    }
+
+    function stop() {
+        this.endTime = Date.now()
+    }
+
+    function tick() {
+        const now = Date.now()
+        this.tps.push(now)
+        if (this.responseStart <= 0) {
+            this.responseStart = now;
+            return true
+        }
+        return false
+    }
+
+    function sum() {
+        const {tps, startTime, endTime} = this
+        const tpsDelta = []
+        for (let i = 0; i < (tps.length - 1); i++) tpsDelta.push(tps[i + 1] - tps[i])
+        const avg = Math.ceil(1000000 / (tpsDelta.reduce((p, c,) => p + c) / tpsDelta.length)) / 1000
+        const elapsed = Math.ceil(endTime - startTime) / 1000
+        return {avg, elapsed}
+    }
+
+    function ctxInitTime() {
+        const {startTime, responseStart} = this
+        return (Math.ceil(responseStart - startTime)) / 1000
+    }
+
+    return {startTime: 0, endTime: 0, responseStart: 0, tps: [], start, stop, tick, sum, ctxInitTime}
+}
+
+//
+// Main
+//
+
+async function main() {
+    const {envProcessor, argTable, helpMessage} = this
+    global.HELP_MESSAGE = helpMessage()
+
+    const ctx = {}
+
+    const config = buildConfig(envProcessor, argTable)
+    const {model} = config
+    if (!model) (msg("Please set the LLM model name.\n\n"), printHelpE(5));
+
+    ctx.config = config
+    //
+    // If has output file, open and prepare the writer
+    //
+    let dataWriter = await buildDataWriter(config)
+    ctx.dataWriter = dataWriter
+
+    msg(`Server : ${config.serverUrl}\n`)
+    msg(`Model  : ${model}\n`)
+    msg(`\n`)
+
+    // Create memory (if needed)
+    const chatMemory = await createMemory(config)
+    ctx.chatMemory = chatMemory
+
+    // Prepare message
+    const messages = []
+    ctx.messages = messages
+
+    const {onSetPrompt} = this
+
+    if (config.systemPrompt) {
+        const systemMessage = await fs.readFile(config.systemPrompt, {encoding: 'utf8'})
+        msg(`<< System Role >>\n`)
+        msg(systemMessage)
+        msg("\n=================\n\n")
+        ctx.systemPrompt = systemMessage
+    }
+
+    // If has memory, restore the memory
+    if (chatMemory && (chatMemory.messages.length > 0)) {
+        for (const e of chatMemory.messages) messages.push(await onSetPrompt(ctx, e));
+        msg(`[[ Restored ${chatMemory.messages.length} chat histories. ]]\n`)
+    }
+
+    let {prompt} = config
+    if (!prompt) {
+        prompt = ''
+        process.stdin.on('data', chunk => prompt += chunk)
+        await new Promise((resolve) => process.stdin.on('end', resolve))
+    }
+    const userMessage = await onSetPrompt(ctx, {role: "user", content: prompt})
+    messages.push(userMessage)
+    if (chatMemory) chatMemory.userResponse(userMessage.content)
+
+    if (messages.length <= 0) (msg("Neither user prompt or system prompt is provided.\n"), process.exit(6))
+
+    // Token speed counter
+    const timer = buildTimer()
+    ctx.timer = timer
+
+    const {incomeHandler, requestBuilder, buildApiUrl, buildRequestHeaders} = this
+
+    // Build the request
+    const request = {}
+    ctx.request = request
+    await requestBuilder(ctx)
+
+    msg(`<< Question : `)
+    msg(`${prompt}\n`)
+    msg(`>> Answer   : `)
+
+    const onData = line => incomeHandler(ctx, line)
+    // Write the request body to file
+    await dataWriter(JSON.stringify(request) + "\n")
+
+    timer.start()
+    // Request to server
+    await fetchJsonStream({
+        url: await buildApiUrl(ctx),
+        body: request,
+        headers: buildRequestHeaders ? await buildRequestHeaders(ctx) : null,
+        onData
+    })
+
+    timer.stop();
+    if(chatMemory) postHook(() => chatMemory.saveAsync());
+    (({avg, elapsed}) => msg(`[[ Time elapsed: ${elapsed}s, Avg: ${avg} t/s ]]\n`))(timer.sum());
+    await runPostHooks() // Trigger post hooks
+}
+
+configuration = {
+    helpMessage : () =>
+        "Usage: gen-gemini [options] prompt.\n\n" +
+        "Options: \n" +
+        "    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n" +
+        "    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n" +
+        "    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n" +
+        "    --memory MEMORY_FILE   Use the given file to save the chat for continue (env: LLM_MEMORY_FILE)\n" +
+        "\n" +
+        "Note: '-' in arg list will stop param reading and take prompt from STDIN\n" +
+        "\n" +
+        "Env:\n" +
+        "    GEMINI_API_KEY            Google Gemini API Key, required.\n" +
+        "    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n" +
+        "    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'developer' (for old models please use 'system').\n" +
+        "\n",
+
+    envProcessor: (c) => {
+        c.serverUrl    = process.env["SERVER_URL"] || "https://generativelanguage.googleapis.com"
+        c.model        = process.env["LLM_MODEL"]      || "gemini-1.5-flash"
+        c.out          = process.env["OUT_FILE"]
+        c.apiKey       = process.env["GEMINI_API_KEY"]
+        c.systemPrompt = process.env["LLM_SYSTEM_PROMPT_FILE"]
+        c.systemRole   = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "user"
+        c.memoryFile   = process.env["LLM_CHAT_MEMORY"]
+    },
+
+    argTable: {
+        "--out": (c, n) => c.out = n(1),
+        "--model": (c, n) => c.model = n(1),
+        "--server": (c, n) => c.serverUrl = n(1),
+        "--memory": (c, n) => c.memoryFile = n(1),
+        "--help": () => printHelpE(0),
+    },
+
+    onSetPrompt: async (_, e) => e,
+
+    buildApiUrl: async ({config}) => `${config.serverUrl}/v1beta/models/${config.model}:streamGenerateContent?alt=sse&key=${config.apiKey}`,
+
+    requestBuilder:  async ({ config, request, messages, systemPrompt }) => {
+        config.apiKey || (msg("Please specify GEMINI_API_KEY.\n"),process.exit(1))
+
+        request.contents = messages.filter(e => e.role === 'user' || e.role === 'model')
+            .map(({ role, content }) => ({ role, parts: [{text: content}] }))
+
+        if(systemPrompt) request.systemInstruction = systemPrompt
+    },
+
+    // buildRequestHeaders: async () => null,
+
+    incomeHandler: ({dataWriter, timer, chatMemory}, line) => {
+        if (!line) return
+
+        dataWriter(line).then(() => [])
+        timer.tick() && msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
+
+        let fields = line.trim().match(/^data:\s+?(.+)/)
+        if(!fields) return
+        const [, payload] = fields
+        if(!payload.trim()) return
+
+        const {candidates} = JSON.parse(payload);
+        if(candidates.length <= 0) return
+
+        const { content } = candidates[0]
+        if(!content) return
+        const { parts } = content
+        if(!parts || parts.length <= 0) return
+        const { text } = parts[0]
+        print(text)
+        chatMemory && chatMemory.appendAssistantOut(text)
+    }
+}
+
+//
+// Bootstrap
+//
+main.bind(configuration)().then(() => []).catch(console.error);
