@@ -6,98 +6,50 @@ const http = require("http");
 const {URL} = require("url");
 
 const print = s => process.stdout.write(s)
-const msg   = s => process.stderr.write(s)
+const msg = s => process.stderr.write(s)
 
-function printHelp() {
-    msg("Usage: gen-ollama [options] prompt.\n\n")
-    msg("Options: \n")
-    msg("    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n")
-    msg("    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n")
-    msg("    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n")
-    msg("    --memory MEMORY_FILE   Use the given file to save the chat for continue (env: LLM_MEMORY_FILE)\n")
-    msg("\n")
-    msg("Note: '-' in arg list will stop param reading and take prompt from STDIN\n")
-    msg("\n")
-    msg("Env:\n")
-    msg("    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n")
-    msg("    LLM_KEEP_ALIVE            How long for keep LLM model in memory, default is '5m'.\n")
-    msg("    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'system'.\n")
-    msg("    LLM_CTX_WINDOW_SIZE       Context window size, default is 2048.\n")
-    msg("\n")
-}
-function printHelpE(n) {
-    printHelp(); process.exit(n);
-}
+// Post Hook
+const [postHooks, postHook, runPostHooks] = [[], (a) => postHooks.push(a), () => Promise.all(postHooks.map((a) => a()))]
+
+// Help Print
+const [printHelp, printHelpE] = [() => msg(global.HELP_MESSAGE), (n) => (printHelp(), process.exit(n))]
+
 //
 // Get Settings
 //
-function processArgs(args) {
-    if(!args || args.length <= 2) return printHelpE(1);
-
+function processArgs(args, argList) {
+    if (!args || args.length <= 2) return printHelpE(1);
     const result = {}
-
     const lastArg = args[args.length - 1]
-    if(lastArg.substring(0, 2) === "--") return printHelpE(2);
-
-    if(lastArg !== '-') result.prompt = lastArg;
-
+    if (lastArg.substring(0, 2) === "--") return printHelpE(2);
+    if (lastArg !== '-') result.prompt = lastArg;
     const options = args.slice(2, args.length - 1)
-    if(options.length <= 0) return result
-
+    if (options.length <= 0) return result
     let op, i;
+
     function inbound(size) {
         i += size
-        if(i < options.length) return i;
-        (msg("Require value for option: " + op + "\n\n\n"),printHelpE(3))
-    }
-    for ((i = 0, op = options[i]); i < options.length; i++) {
-        switch (op) {
-            case "--out":
-                result.out = options[inbound(1)];
-                break;
-            case "--model" :
-                result.model = options[inbound(1)];
-                break;
-            case "--server" :
-                result.serverUrl = options[inbound(1)];
-                break;
-            case "--memory":
-                result.memoryFile = options[inbound(1)];
-                break;
-            case "-":
-                result.prompt = null;
-                return result;
-            default:
-                printHelp();
-                process.exit(4);
-                break;
-        }
+        if (i < options.length) return options[i];
+        (msg("Require value for option: " + op + "\n\n\n"), printHelpE(3))
     }
 
+    for ((i = 0, op = options[i]); i < options.length; i++) {
+        if (op === '-') {
+            result.prompt = null
+            return result;
+        }
+        const h = argList[op]
+        if (!h) printHelpE(4);
+        h(result, inbound)
+    }
     return result
 }
 
-const buildConfig = () => {
+const buildConfig = (envProcessor, argTable) => {
     const result = {}
-
-    result.serverUrl      = process.env["SERVER_URL"] || "http://10.0.20.1:11434"
-    result.model          = process.env["LLM_MODEL"] 
-    result.out            = process.env["OUT_FILE"]
-    result.systemPrompt   = process.env["LLM_SYSTEM_PROMPT_FILE"]
-    result.modelKeepAlive = process.env["LLM_KEEP_ALIVE"]
-    result.memoryFile     = process.env["LLM_CHAT_MEMORY"]
-    result.systemRole     = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "system"
-    result.llmCtxSize     = process.env["LLM_CTX_WINDOW_SIZE"]
-
-    return { ...result, ...processArgs(process.argv) }
+    envProcessor(result)
+    return {...result, ...processArgs(process.argv, argTable)}
 }
-
-//
-// Post Hooks
-//
-const [postHooks, postHook, runPostHooks] = [
-    [], (a) => { postHooks.push(a) }, () => Promise.all(postHooks.map((a) => a()))
-]
 
 //
 // Json Streaming Helper
@@ -106,25 +58,18 @@ const [postHooks, postHook, runPostHooks] = [
 function fetchJsonStream({url, body, headers, onData}) {
     const {hostname, port, pathname} = URL.parse(url)
     let buffer = ''
-    const onEachData = (chunk, reject) => {
+    const onEachData = (chunk) => {
         buffer += chunk
 
         while (true) {
             const newLineIndex = buffer.indexOf('\n');
-            if (newLineIndex === -1) break;
+            if (newLineIndex < 0) break;
 
             const line = buffer.slice(0, newLineIndex);
             buffer = buffer.slice(newLineIndex + 1);
 
             if (!line.trim()) continue;
-
-            try {
-                const obj = JSON.parse(line);
-                if(obj === null) continue;
-                onData(obj);
-            } catch (error) {
-                reject(new Error(`Invalid JSON in line: ${error.message}`))
-            }
+            onData(line);
         }
     }
 
@@ -133,40 +78,34 @@ function fetchJsonStream({url, body, headers, onData}) {
     const options = {
         hostname, port, path: pathname,
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        }
+        headers: {'Content-Type': 'application/json', ...(headers ? headers : {})}
     }
 
     return new Promise((resolve, reject) => {
-
         const request = http.request(options, resp => {
             if (resp.statusCode !== 200) {
                 let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
                 new Promise((r) => {
-                    resp.on('data', c => errMsg+= c); resp.on('end', r);
+                    resp.on('data', c => errMsg += c);
+                    resp.on('end', r);
                 }).then(() => reject(`${errMsg} ]]`))
                 return
             }
-
-            resp.on('data', chunk => onEachData(chunk, reject));
+            resp.on('data', onEachData);
             resp.on('end', () => {
                 if (buffer) reject(new Error("Incomplete JSON received"));
                 else resolve()
             });
         })
         request.on('error', reject)
-
-        request.write(postBody, (error) => {
-            if (error) reject(error);
-        })
+        request.write(postBody, error => error ? reject(error) : null)
         request.end()
     })
 }
 
 async function createMemory(config) {
-    const { memoryFile } = config
-    if(!memoryFile) return null
+    const {memoryFile} = config
+    if (!memoryFile) return null
 
     let memory = {}
     try {
@@ -174,35 +113,42 @@ async function createMemory(config) {
         await fs.access(memoryFile)
         const content = await fs.readFile(memoryFile, 'utf8')
         const jsonContent = JSON.parse(content)
-        if(typeof jsonContent === 'object' && jsonContent !== null) memory = jsonContent
+        if (typeof jsonContent === 'object' && jsonContent !== null) memory = jsonContent
     } catch (e) {
         // Do nothing
     }
-    if(!memory.messages) memory.messages = []
+    if (!memory.messages) memory.messages = []
 
     async function saveAsync() {
         // Push the assistant response
-        if(this.responseBuffer) this.messages.push({ "role" : "assistant", content: this.responseBuffer })
+        if (this.responseBuffer) this.messages.push({"role": "assistant", content: this.responseBuffer})
 
-        const memory = { messages: this.messages }
+        const memory = {messages: this.messages}
         await fs.writeFile(memoryFile, JSON.stringify(memory))
         msg("[[ Chat history saved: '" + memoryFile + "' ]]\n")
     }
 
     function appendAssistantOut(str) {
-        if(!this.responseBuffer) this.responseBuffer = ""
+        if (!this.responseBuffer) this.responseBuffer = ""
         this.responseBuffer += str
     }
 
     function toolResponse(content) {
-        this.messages.push({"role":"tool_call", content})
+        this.messages.push({"role": "tool_call", content})
     }
 
     function userResponse(content) {
-        this.messages.push({"role":"user", content})
+        this.messages.push({"role": "user", content})
     }
 
-    return { messages: memory.messages || [], responseBuffer: null , appendAssistantOut, toolResponse, userResponse, saveAsync }
+    return {
+        messages: memory.messages || [],
+        responseBuffer: null,
+        appendAssistantOut,
+        toolResponse,
+        userResponse,
+        saveAsync
+    }
 }
 
 //
@@ -210,7 +156,8 @@ async function createMemory(config) {
 //
 async function buildDataWriter(config) {
     const outFilePath = config.out
-    if(!outFilePath) return () => { /* Noop */ }
+    if (!outFilePath) return () => { /* Noop */
+    }
 
     const file = await fs.open(outFilePath, 'w')
     postHook(async () => {
@@ -226,110 +173,212 @@ async function buildDataWriter(config) {
 //
 
 function buildTimer() {
-    function start() { this.startTime = Date.now() }
-    function stop() { this.endTime = Date.now() }
+    function start() {
+        this.startTime = Date.now()
+    }
+
+    function stop() {
+        this.endTime = Date.now()
+    }
+
     function tick() {
         const now = Date.now()
         this.tps.push(now)
-        if(this.responseStart <= 0) {
+        if (this.responseStart <= 0) {
             this.responseStart = now;
             return true
         }
         return false
     }
+
     function sum() {
-        const { tps, startTime, endTime } = this
+        const {tps, startTime, endTime} = this
         const tpsDelta = []
-        for(let i = 0; i < (tps.length - 1); i++) tpsDelta.push(tps[i + 1] - tps[i])
+        for (let i = 0; i < (tps.length - 1); i++) tpsDelta.push(tps[i + 1] - tps[i])
         const avg = Math.ceil(1000000 / (tpsDelta.reduce((p, c,) => p + c) / tpsDelta.length)) / 1000
         const elapsed = Math.ceil(endTime - startTime) / 1000
-        return { avg, elapsed }
+        return {avg, elapsed}
     }
+
     function ctxInitTime() {
-        const { startTime, responseStart } = this
+        const {startTime, responseStart} = this
         return (Math.ceil(responseStart - startTime)) / 1000
     }
-    return { startTime: 0, endTime: 0, responseStart: 0 ,tps: [], start, stop, tick, sum, ctxInitTime }
+
+    return {startTime: 0, endTime: 0, responseStart: 0, tps: [], start, stop, tick, sum, ctxInitTime}
 }
 
 //
 // Main
 //
 
-;(async () => {
-    const config = buildConfig()
-    const { model } = config
-    if(!model) (msg("Please set the LLM model name.\n\n"),printHelpE(5));
+async function main() {
+    const {envProcessor, argTable, helpMessage} = this
+    global.HELP_MESSAGE = helpMessage()
 
+    const ctx = {}
+
+    const config = buildConfig(envProcessor, argTable)
+    const {model} = config
+    if (!model) (msg("Please set the LLM model name.\n\n"), printHelpE(5));
+
+    ctx.config = config
     //
     // If has output file, open and prepare the writer
     //
     let dataWriter = await buildDataWriter(config)
+    ctx.dataWriter = dataWriter
 
     msg(`Server : ${config.serverUrl}\n`)
     msg(`Model  : ${model}\n`)
     msg(`\n`)
 
-    const request = { model: config.model }
-
-    // Set the keep-alive if needed
-    if(config.modelKeepAlive) request.keep_alive = config.modelKeepAlive
-    // Set context window size if present
-    if(config.llmCtxSize) {
-        const op = request.options || {}
-        op.num_ctx = parseInt(config.llmCtxSize)
-        request.options = op
-    }
-
     // Create memory (if needed)
     const chatMemory = await createMemory(config)
+    ctx.chatMemory = chatMemory
 
     // Prepare message
     const messages = []
-    if(config.systemPrompt) {
-        const systemMessage = await fs.readFile(config.systemPrompt, { encoding: 'utf8' })
+    ctx.messages = messages
+
+    const {onSetPrompt} = this
+
+    if (config.systemPrompt) {
+        const systemMessage = await fs.readFile(config.systemPrompt, {encoding: 'utf8'})
         msg(`<< System Role (${config.systemRole}) >>\n`)
         msg(systemMessage)
         msg("\n=================\n\n")
-        messages.push({ role: config.systemRole, content: systemMessage })
+        messages.push(await onSetPrompt(ctx, {role: config.systemRole, content: systemMessage}))
     }
+
     // If has memory, restore the memory
-    if(chatMemory && (chatMemory.messages.length > 0)) {
-        for(const e of chatMemory.messages) messages.push(e);
+    if (chatMemory && (chatMemory.messages.length > 0)) {
+        for (const e of chatMemory.messages) messages.push(await onSetPrompt(ctx, e));
         msg(`[[ Restored ${chatMemory.messages.length} chat histories. ]]\n`)
     }
 
-    let { prompt } = config
+    let {prompt} = config
     if (!prompt) {
         prompt = ''
         process.stdin.on('data', chunk => prompt += chunk)
         await new Promise((resolve) => process.stdin.on('end', resolve))
     }
-    const userMessage = { role: "user", content: prompt }
+    const userMessage = await onSetPrompt(ctx, {role: "user", content: prompt})
     messages.push(userMessage)
-    if(chatMemory) chatMemory.userResponse(userMessage.content)
+    if (chatMemory) chatMemory.userResponse(userMessage.content)
 
-    if (messages.length <= 0) (msg("Neither user prompt or system prompt is provided.\n"),process.exit(6))
-    request.messages = messages
+    if (messages.length <= 0) (msg("Neither user prompt or system prompt is provided.\n"), process.exit(6))
+
+    // Token speed counter
+    const timer = buildTimer()
+    ctx.timer = timer
+
+    const {incomeHandler, requestBuilder, buildApiUrl, buildRequestHeaders} = this
+
+    // Build the request
+    const request = {}
+    ctx.request = request
+    await requestBuilder(ctx)
 
     msg(`<< Question : `)
     msg(`${prompt}\n`)
     msg(`>> Answer   : `)
 
+    const onData = line => incomeHandler(ctx, line)
     // Write the request body to file
     await dataWriter(JSON.stringify(request) + "\n")
 
-    // Token speed counter
-    const timer = buildTimer()
     timer.start()
+    // Request to server
+    await fetchJsonStream({
+        url: await buildApiUrl(ctx),
+        body: request,
+        headers: buildRequestHeaders ? await buildRequestHeaders(ctx) : null,
+        onData
+    })
 
-    const onData = (data) => {
-        if (!data) return
+    timer.stop();
+    postHook(() => chatMemory.saveAsync());
+    (({avg, elapsed}) => msg(`[[ Time elapsed: ${elapsed}s, Avg: ${avg} t/s ]]\n`))(timer.sum());
+    await runPostHooks() // Trigger post hooks
+}
 
-        dataWriter(JSON.stringify(data)).then(() => {})
-            .catch((e) => msg(`[!] Fail to write line: ${e.message}\n`))
+//
+// Configuration
+//
 
-        if(timer.tick()) msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
+configuration = {
+
+    helpMessage: () =>
+        "Usage: gen-ollama [options] PROMPT\n\n" +
+        "Options: \n" +
+        "    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n" +
+        "    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n" +
+        "    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n" +
+        "    --memory MEMORY_FILE   Use the given file to save the chat for continue (env: LLM_MEMORY_FILE)\n" +
+        "\n" +
+        "Note: '-' in arg list will stop param reading and take prompt from STDIN\n" +
+        "\n" +
+        "Env:\n" +
+        "    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n" +
+        "    LLM_KEEP_ALIVE            How long for keep LLM model in memory, default is '5m'.\n" +
+        "    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'system'.\n" +
+        "    LLM_CTX_WINDOW_SIZE       Context window size, default is 2048.\n" +
+        "\n"
+    ,
+
+    envProcessor: (c) => {
+        c.serverUrl = process.env["SERVER_URL"] || "http://10.0.20.1:11434"
+        c.model = process.env["LLM_MODEL"]
+        c.out = process.env["OUT_FILE"]
+        c.systemPrompt = process.env["LLM_SYSTEM_PROMPT_FILE"]
+        c.modelKeepAlive = process.env["LLM_KEEP_ALIVE"]
+        c.memoryFile = process.env["LLM_CHAT_MEMORY"]
+        c.systemRole = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "system"
+        c.llmCtxSize = process.env["LLM_CTX_WINDOW_SIZE"]
+    },
+
+    argTable: {
+        "--out": (c, n) => c.out = n(1),
+        "--model": (c, n) => c.model = n(1),
+        "--server": (c, n) => c.serverUrl = n(1),
+        "--memory": (c, n) => c.memoryFile = n(1),
+        "--help": () => printHelpE(0),
+    },
+
+    requestBuilder: async ({config, request, messages}) => {
+        request.model = config.model
+        request.messages = messages
+
+        // Set the keep-alive if needed
+        if (config.modelKeepAlive) request.keep_alive = config.modelKeepAlive
+
+        // Set context window size if present
+        if (config.llmCtxSize) {
+            const op = request.options || {}
+            op.num_ctx = parseInt(config.llmCtxSize)
+            request.options = op
+        }
+    },
+
+    onSetPrompt: async (_, e) => e,
+
+    buildApiUrl: async ({config}) => `${config.serverUrl}/api/chat`,
+
+    incomeHandler: ({dataWriter, timer, chatMemory}, line) => {
+        if (!line) return
+
+        let data
+        try {
+            data = JSON.parse(line);
+            if (data === null) return;
+        } catch (error) {
+            throw new Error(`Invalid JSON in line: ${error.message}`)
+        }
+
+        dataWriter(JSON.stringify(data)).then(() => [])
+
+        if (timer.tick()) msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
 
         const {message, done} = data;
 
@@ -338,15 +387,10 @@ function buildTimer() {
         print(content)
         chatMemory && chatMemory.appendAssistantOut(content)
     }
+}
 
-    // Request to server
-    await fetchJsonStream({url: `${config.serverUrl}/api/chat`, body: request, onData})
-    timer.stop();
 
-    postHook(() => chatMemory.saveAsync());
-
-    (({ avg, elapsed}) => msg(`[[ Time elapsed: ${elapsed}s, Avg: ${avg} t/s ]]\n`))(timer.sum());
-
-    // Trigger post hooks
-    await runPostHooks()
-})().then(() => {}).catch(console.error);
+//
+// Bootstrap
+//
+main.bind(configuration)().then(() => []).catch(console.error);
