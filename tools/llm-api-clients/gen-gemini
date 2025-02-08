@@ -315,7 +315,6 @@ configuration = {
         "Env:\n" +
         "    GEMINI_API_KEY            Google Gemini API Key, required.\n" +
         "    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n" +
-        "    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'developer' (for old models please use 'system').\n" +
         "\n",
 
     envProcessor: (c) => {
@@ -324,7 +323,6 @@ configuration = {
         c.out          = process.env["OUT_FILE"]
         c.apiKey       = process.env["GEMINI_API_KEY"]
         c.systemPrompt = process.env["LLM_SYSTEM_PROMPT_FILE"]
-        c.systemRole   = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "user"
         c.memoryFile   = process.env["LLM_CHAT_MEMORY"]
     },
 
@@ -343,8 +341,7 @@ configuration = {
     requestBuilder:  async ({ config, request, messages, systemPrompt }) => {
         config.apiKey || (msg("Please specify GEMINI_API_KEY.\n"),process.exit(1))
 
-        request.contents = messages.filter(e => e.role === 'user' || e.role === 'model')
-            .map(({ role, content }) => ({ role, parts: [{text: content}] }))
+        request.contents = messages.map(({ role, content }) => ({ role, parts: [{text: content}] }))
 
         if(systemPrompt) request.systemInstruction = systemPrompt
     },
