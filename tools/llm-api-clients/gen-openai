@@ -1,256 +1,95 @@
 #!/usr/bin/env node
 
-const process = require("node:process")
-const fs = require("fs/promises")
-const http = require("https");
-const {URL} = require("url");
-
-const print = s => process.stdout.write(s)
-const msg   = s => process.stderr.write(s)
-
-function printHelp() {
-    msg("Usage: gen-openai [options] prompt.\n\n")
-    msg("Options: \n")
-    msg("    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n")
-    msg("    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n")
-    msg("    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n")
-    msg("\n")
-    msg("Note: '-' in arg list will stop param reading and take prompt from STDIN\n")
-    msg("\n")
-    msg("Env:\n")
-    msg("    OPENAI_API_KEY            OpenAI API Key, required.\n")
-    msg("    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n")
-    msg("    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'developer' (for old models please use 'system').\n")
-    msg("\n")
-}
-//
-// Get Settings
-//
-function processArgs(args) {
-    const result = {}
-    if(!args || args.length <= 2) {
-        printHelp()
-        process.exit(1)
-    }
-    const lastArg = args[args.length - 1]
-    if(lastArg.substring(0, 2) === "--") {
-        printHelp()
-        process.exit(2)
-    }
-    if(lastArg !== '-') result.prompt = lastArg;
-
-    const options = args.slice(2, args.length - 1)
-    if(options.length <= 0) return result
-
-    let op, i;
-    function inbound(size) {
-        i += size
-        if(i < options.length) return i;
-
-        msg("Require value for option: " + op + "\n\n\n")
-        printHelp()
-
-        process.exit(3)
-    }
-    for (i = 0; i < options.length; i++) {
-        op = options[i]
-        switch (op) {
-            case "--out":
-                result.out = options[inbound(1)];
-                break;
-            case "--model" :
-                result.model = options[inbound(1)];
-                break;
-            case "--server" :
-                result.serverUrl = options[inbound(1)];
-                break;
-            case "-":
-                result.prompt = null;
-                return result;
-            default:
-                printHelp();
-                process.exit(4);
-                break;
-        }
-    }
-
-    return result
-}
-
-const buildConfig = () => {
-    const result = {}
-
-    result.serverUrl    = process.env["SERVER_URL"] || "https://api.openai.com/v1"
-    result.model        = process.env["LLM_MODEL"]      || "gpt-4o-mini"
-    result.out          = process.env["OUT_FILE"]
-    result.systemPrompt = process.env["LLM_SYSTEM_PROMPT_FILE"]
-    result.apiKey       = process.env["OPENAI_API_KEY"] || (msg("Please specify OPENAI_API_KEY.\n"),process.exit(1))
-    result.systemRole   = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "developer"
-
-    return { ...result, ...processArgs(process.argv) }
-}
+// This minified js is just the same code as ./gen-ollama
 
 //
-// Json Streaming Helper
+// START
+//
+const process=require("node:process"),fs=require("fs/promises"),http=require("https");let URL=require("url").URL;const print=e=>process.stdout.write(e),msg=e=>process.stderr.write(e);
+let[postHooks,postHook,runPostHooks]=[[],e=>postHooks.push(e),()=>Promise.all(postHooks.map(e=>e()))],[printHelp,printHelpE]=[()=>msg(global.HELP_MESSAGE),e=>(printHelp(),process.exit(e))];
+function processArgs(e,r){if(!e||e.length<=2)return printHelpE(1);var n={},s=e[e.length-1];if("--"===s.substring(0,2))return printHelpE(2);"-"!==s&&(n.prompt=s);const o=e.slice(2,e.length-1);
+if(!(o.length<=0)){let s,t;for(t=0,s=o[t];t<o.length;t++){if("-"===s)return n.prompt=null,n;var i=r[s];i||printHelpE(4),i(n,a)}function a(e){if((t+=e)<o.length)return o[t];
+msg("Require value for option: "+s+"\n\n\n"),printHelpE(3)}}return n}const buildConfig=(e,s)=>{var t={};return e(t),{...t,...processArgs(process.argv,s)}};
+function fetchJsonStream({url:e,body:s,headers:t,onData:r}){var{hostname:e,port:n,pathname:o}=URL.parse(e);let i="";const a=e=>{for(i+=e;;){var s=i.indexOf("\n");if(s<0)break;var t=i.slice(0,s);
+i=i.slice(s+1),t.trim()&&r(t)}},p=JSON.stringify(s)+"\n",l={hostname:e,port:n,path:o,method:"POST",headers:{"Content-Type":"application/json",...t||{}}};
+return new Promise((e,r)=>{var s=http.request(l,t=>{if(200!==t.statusCode){let s=`[[ HTTP STATUS ${t.statusCode}, RESPONSE `;void new Promise(e=>{t.on("data",e=>s+=e),t.on("end",e)}).then(()=>r(`${s} ]]`))}
+else t.on("data",a),t.on("end",()=>{i?r(new Error("Incomplete JSON received")):e()})});s.on("error",r),s.write(p,e=>e?r(e):null),s.end()})}async function createMemory(e){let s=e.memoryFile;
+if(!s)return null;let t={};try{msg("[[ Chat memory: '"+s+"' ]]\n"),await fs.access(s);var r=await fs.readFile(s,"utf8"),n=JSON.parse(r);"object"==typeof n&&null!==n&&(t=n)}catch(e){}return t.messages||(t.messages=[]),
+{messages:t.messages||[],responseBuffer:null,appendAssistantOut:function(e){this.responseBuffer||(this.responseBuffer=""),this.responseBuffer+=e},toolResponse:function(e){this.messages.push({role:"tool_call",content:e})},
+userResponse:function(e){this.messages.push({role:"user",content:e})},saveAsync:async function(){this.responseBuffer&&this.messages.push({role:"assistant",content:this.responseBuffer});var e={messages:this.messages};
+await fs.writeFile(s,JSON.stringify(e)),msg("[[ Chat history saved: '"+s+"' ]]\n")}}}async function buildDataWriter(e){const s=e.out;if(!s)return()=>{};const t=await fs.open(s,"w");return postHook(async()=>{await t.sync(),
+await t.close(),msg("[[ LLM Response saved to file '"+s+"' ]]\n")}),e=>t.write(`${e}\n`)}function buildTimer(){return{startTime:0,endTime:0,responseStart:0,tps:[],start:function(){this.startTime=Date.now()},
+stop:function(){this.endTime=Date.now()},tick:function(){var e=Date.now();return this.tps.push(e),this.responseStart<=0&&(this.responseStart=e,!0)},sum:function(){var{tps:s,startTime:e,endTime:t}=this,r=[];
+for(let e=0;e<s.length-1;e++)r.push(s[e+1]-s[e]);return{avg:Math.ceil(1e6/(r.reduce((e,s)=>e+s)/r.length))/1e3,elapsed:Math.ceil(t-e)/1e3}},ctxInitTime:function(){var{startTime:e,responseStart:s}=this;
+return Math.ceil(s-e)/1e3}}}async function main(){var{envProcessor:e,argTable:s,helpMessage:t}=this;global.HELP_MESSAGE=t();const r={};t=buildConfig(e,s),e=t.model,e||(msg("Please set the LLM model name.\n\n"),
+printHelpE(5)),s=await buildDataWriter(r.config=t);r.dataWriter=s,msg(`Server : ${t.serverUrl}\n`),msg(`Model  : ${e}\n`),msg(`\n`);const n=await createMemory(t);r.chatMemory=n;var o=[],i=(r.messages=o,this)
+.onSetPrompt;if(t.systemPrompt&&(e=await fs.readFile(t.systemPrompt,{encoding:"utf8"}),msg(`<< System Role (${t.systemRole}) >>\n`),msg(e),msg("\n=================\n\n"),o.push(await i(r,{role:t.systemRole,content:e})))
+,n&&0<n.messages.length){for(const c of n.messages)o.push(await i(r,c));msg(`[[ Restored ${n.messages.length} chat histories. ]]\n`)}let a=t.prompt;a||(a="",process.stdin.on("data",e=>a+=e),
+await new Promise(e=>process.stdin.on("end",e)));e=await i(r,{role:"user",content:a}),o.push(e),n&&n.userResponse(e.content),o.length<=0&&(msg("Neither user prompt or system prompt is provided.\n"),process.exit(6)),
+t=buildTimer();r.timer=t;let{incomeHandler:p,requestBuilder:l,buildApiUrl:u,buildRequestHeaders:m}=this;var e={};r.request=e,await l(r),msg(`<< Question : `),msg(`${a}\n`),msg(`>> Answer   : `);
+await s(JSON.stringify(e)+"\n"),t.start(),await fetchJsonStream({url:await u(r),body:e,headers:m?await m(r):null,onData:e=>p(r,e)}),t.stop(),postHook(()=>n&&n.saveAsync()),({avg:s,elapsed:e}=t.sum()),
+msg(`[[ Time elapsed: ${e}s, Avg: ${s} t/s ]]\n`),await runPostHooks()}
+//
+// END
 //
 
-function fetchJsonStream(url, headers ,body, onData) {
-    const {hostname, port, pathname} = URL.parse(url)
-    let buffer = ''
+configuration = {
+    helpMessage : () =>
+        "Usage: gen-openai [options] prompt.\n\n" +
+        "Options: \n" +
+        "    --out    FILE          Output LLM response lines to FILE (env: OUT_FILE)\n" +
+        "    --model  MODEL_NAME    Use model MODEL_NAME (env: LLM_MODEL)\n" +
+        "    --server SERVER_URL    Use SERVER_URL as endpoint base name (env: SERVER_URL)\n" +
+        "    --memory MEMORY_FILE   Use the given file to save the chat for continue (env: LLM_MEMORY_FILE)\n" +
+        "\n" +
+        "Note: '-' in arg list will stop param reading and take prompt from STDIN\n" +
+        "\n" +
+        "Env:\n" +
+        "    OPENAI_API_KEY            OpenAI API Key, required.\n" +
+        "    LLM_SYSTEM_PROMPT_FILE    Provide a text file as system prompt.\n" +
+        "    LLM_SYSTEM_PROMPT_ROLE    Role name of system prompt, default is 'developer' (for old models please use 'system').\n" +
+        "\n",
 
-    //
-    // Method to handle each line
-    //
-    const onEachData = (chunk) => {
-        buffer += chunk
+    envProcessor: (c) => {
+        c.serverUrl    = process.env["SERVER_URL"] || "https://api.openai.com/v1"
+        c.model        = process.env["LLM_MODEL"]      || "gpt-4o-mini"
+        c.out          = process.env["OUT_FILE"]
+        c.systemPrompt = process.env["LLM_SYSTEM_PROMPT_FILE"]
+        c.apiKey       = process.env["OPENAI_API_KEY"]
+        c.systemRole   = process.env["LLM_SYSTEM_PROMPT_ROLE"] || "developer"
+        c.memoryFile   = process.env["LLM_CHAT_MEMORY"]
+    },
 
-        while (true) {
-            const newLineIndex = buffer.indexOf('\n');
-            if (newLineIndex === -1) break;
+    argTable: {
+        "--out": (c, n) => c.out = n(1),
+        "--model": (c, n) => c.model = n(1),
+        "--server": (c, n) => c.serverUrl = n(1),
+        "--memory": (c, n) => c.memoryFile = n(1),
+        "--help": () => printHelpE(0),
+    },
 
-            const line = buffer.slice(0, newLineIndex);
-            buffer = buffer.slice(newLineIndex + 1);
+    onSetPrompt: async (_, e) => e,
 
-            const payload = line.trim()
-            if (!payload) continue;
-            onData(payload);
-        }
-    }
+    buildApiUrl: async ({config}) => `${config.serverUrl}/chat/completions`,
 
-    //
-    // Build request options
-    //
-    const options = {
-        hostname, port, path: pathname,
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...headers
-        }
-    }
+    requestBuilder:  async ({ config, request, messages }) => {
+        config.apiKey || (msg("Please specify OPENAI_API_KEY.\n"),process.exit(1))
 
-    //
-    // Build HTTP request body
-    //
-    const postBody = JSON.stringify(body) + '\n'
+        request.model = config.model
+        request.messages = messages
+        request.stream = true;
+        request.stream_options = { include_usage: true };
+    },
 
-    //
-    // Build the request task
-    //
-    return new Promise((resolve, reject) => {
+    buildRequestHeaders: async ({config}) => ({ 'Authorization': `Bearer ${config.apiKey}` }),
 
-        const request = http.request(options, resp => {
-            if (resp.statusCode !== 200) {
-                let errMsg = `[[ HTTP STATUS ${resp.statusCode}, RESPONSE `
-                new Promise((r) => {
-                    resp.on('data', c => errMsg+= c); resp.on('end', r);
-                }).then(() => reject(`${errMsg} ]]`))
-                return
-            }
+    incomeHandler: ({dataWriter, timer, chatMemory}, line) => {
+        if (!line) return
 
-            resp.on('data', onEachData);
-            resp.on('end', () => {
-                if (buffer) reject(new Error("Incomplete JSON received: " + buffer));
-                else resolve()
-            });
-        })
-        request.on('error', reject)
+        dataWriter(line).then(() => [])
+        timer.tick() && msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
 
-        request.write(postBody, (error) => {
-            if (error) reject(error);
-        })
-        request.end()
-    })
-}
-
-function newEmptyOpenAIChatRequest(config) {
-    return {
-        model: config.model,
-        stream: true,
-        stream_options: { include_usage: true },
-    }
-}
-
-//
-// Main
-//
-
-const postHooks = []
-
-;(async () => {
-    const config = buildConfig()
-    const { model } = config
-
-    //
-    // If has data output file, open the file and set a
-    // file writer
-    //
-    let dataWriter = async () => {}
-    const outFilePath = config.out
-    if(outFilePath) {
-        const file = await fs.open(outFilePath, 'w')
-        dataWriter = ((line) => file.write(`${line}\n`))
-        postHooks.push(() => {
-            file.sync()
-            file.close()
-            msg("[[ LLM Response saved to file '" + outFilePath + "' ]]")
-        })
-    }
-
-    msg(`Server : ${config.serverUrl}\n`)
-    msg(`Model  : ${model}\n`)
-    msg(`\n`)
-
-    //
-    // The default OpenAI request content
-    //
-    const request = newEmptyOpenAIChatRequest(config)
-    const messages = []
-
-    //
-    // If system prompt present, read and prepare it from file.
-    //
-    if(config.systemPrompt) {
-        const systemMessage = await fs.readFile(config.systemPrompt, { encoding: 'utf8' })
-        msg("<< System Role >>\n")
-        msg(systemMessage)
-        msg("\n=================\n\n")
-        messages.push({ role: config.systemRole, content: systemMessage })
-    }
-
-    let { prompt } = config
-    if (!prompt) {
-        prompt = ''
-        process.stdin.on('data', chunk => prompt += chunk)
-        await new Promise((resolve) => process.stdin.on('end', resolve))
-    }
-    messages.push({ role: "user", content: prompt })
-
-    if (messages.length <= 0) {
-        msg("Neither user prompt or system prompt is provided.\n")
-        process.exit(1)
-    }
-
-    request.messages = messages
-
-    msg(`<< Question : `)
-    msg(`${prompt}\n`)
-    msg(`>> Answer   : \n`)
-
-    // Write request body
-    await dataWriter(JSON.stringify(request) + "\n")
-
-    // Send the initial request
-    await fetchJsonStream(`${config.serverUrl}/chat/completions`, {
-        'Authorization': `Bearer ${config.apiKey}`
-    } , request, (data) => {
-        if (!data) return
-
-        dataWriter(data)
-            .then(() => {})
-            .catch((e) => msg("Fail to write line: " + e.message + "\n"))
-
-        let fields = data.match(/^data:\s+?(.+)/)
+        let fields = line.match(/^data:\s+?(.+)/)
         const [, payload] = fields
         if(payload === "[DONE]") return msg("\n\n")
 
@@ -260,7 +99,11 @@ const postHooks = []
         const { delta } = choices[0]
         if(!delta.content) return
         print(delta.content)
-    })
+        chatMemory && chatMemory.appendAssistantOut(delta.content)
+    }
+}
 
-    await Promise.all(postHooks)
-})().then(() => {}).catch(console.error);
+//
+// Bootstrap
+//
+main.bind(configuration)().then(() => []).catch(console.error);
