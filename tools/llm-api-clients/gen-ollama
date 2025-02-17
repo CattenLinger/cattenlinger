@@ -154,8 +154,7 @@ async function createMemory(config) {
 //
 async function buildDataWriter(config) {
     const outFilePath = config.out
-    if (!outFilePath) return () => { /* Noop */
-    }
+    if (!outFilePath) return (async () => [])
 
     const file = await fs.open(outFilePath, 'w')
     postHook(async () => {
