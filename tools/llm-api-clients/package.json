@@ -1,0 +1,21 @@
+{
+  "scripts": {
+    "build": "webpack --config buildSrc/production.build.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "shebang-loader": "^0.0.1",
+    "ts-loader": "8.x",
+    "typescript": "^5.7.3",
+    "uglifyjs-webpack-plugin": "^2.2.0",
+    "webpack": "4.x",
+    "webpack-cli": "3.x",
+    "webpack-shebang-plugin": "^1.1.8"
+  },
+  "dependencies": {},
+  "bin": {
+    "gen-ollama": "./dist/gen-ollama.js",
+    "gen-gemini": "./dist/gen-gemini.js",
+    "gen-openai": "./dist/gen-openai.js"
+  }
+}

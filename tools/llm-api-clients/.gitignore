@@ -4,3 +4,6 @@ prompt.txt
 *.iml
 .idea
 *.chatmem.json
+
+/node_modules
+/yarn.lock

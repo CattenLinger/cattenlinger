@@ -1,9 +1,11 @@
 LLM Clients (In JavaScript)
 ===
 
-This is some JavaScript client to call some LLM provider APIs.
+This is some JavaScript client to call LLM provider APIs.
 
 Node.js Version requirement: >= 20
+
+Script files are under `/dist`. They're all self-contained and minimized.
 
 Scripts
 ---
