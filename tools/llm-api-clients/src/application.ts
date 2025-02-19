@@ -149,7 +149,7 @@ export default class Application {
         if(!systemPromptFile) return
 
         ctx.systemPrompt = await fs.readFile(systemPromptFile, {encoding: "utf8"})
-        msg(`<< System Role >>\n`)
+        msg(`<< System Role (name: ${this.getConfig("systemRole")}) >>\n`)
         msg(ctx.systemPrompt)
         msg("\n================\n\n")
     }
