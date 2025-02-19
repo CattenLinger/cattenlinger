@@ -6,7 +6,7 @@ function urlNotNull(url: string): URL {
     return urlObj
 }
 
-export class StreamCollector {
+class StreamCollector {
     private buffer = ''
     private readonly callback: (chunk: string) => void
 

@@ -1,14 +1,14 @@
 import fs from 'fs/promises'
 import {msg} from './commons'
-
-export type MemoryRecord = { role: string, content: string }
+import {ChatMessage} from "./application";
 
 export default class MemoryStorage {
-    private messages: MemoryRecord[]
-    private responseBuffer: string | null = null
-    private memFile: string
+    private readonly messages: ChatMessage[]
+    private readonly memFile: string
 
-    private constructor(memoryFile: string, messages: MemoryRecord[]) {
+    private responseBuffer: string | null = null
+
+    private constructor(memoryFile: string, messages: ChatMessage[]) {
         this.messages = messages
         this.memFile = memoryFile
     }
@@ -17,8 +17,23 @@ export default class MemoryStorage {
         return this.messages.length > 0
     }
 
-    get memory(): MemoryRecord[] {
+    get memory(): ChatMessage[] {
         return [...this.messages]
+    }
+
+    get count() : number {
+        return this.messages.length
+    }
+
+    clear() : ChatMessage[] {
+        return this.messages.splice(0, this.messages.length)
+    }
+
+    flush() : boolean {
+        if (!this.responseBuffer) return false
+        this.messages.push({"role": "assistant", content: this.responseBuffer})
+        this.responseBuffer = ''
+        return true
     }
 
     static async create(memoryFile: string) {
@@ -38,7 +53,7 @@ export default class MemoryStorage {
 
     async saveAsync() {
         // Push the assistant response
-        if (this.responseBuffer) this.messages.push({"role": "assistant", content: this.responseBuffer})
+        this.flush()
 
         const memory = {messages: this.messages}
         await fs.writeFile(this.memFile, JSON.stringify(memory))
@@ -50,7 +65,7 @@ export default class MemoryStorage {
         this.responseBuffer += str
     }
 
-    userResponse(content: string) {
+    appendUserPrompt(content: string) {
         this.messages.push({role: "user", content})
     }
 }

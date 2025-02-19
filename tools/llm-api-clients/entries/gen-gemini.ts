@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 import Application, {AppCustomizeConfig} from "../src/application";
 import process from "process";
-import {msg, print} from "../src/commons";
+import {msg} from "../src/commons";
+import HistorySummarizer from "../src/summerizer";
+
+const summarizeSystemPrompt = `
+You're an assistant who's good at extracting key takeaways from conversations and summarizing them.
+Please summarize according to the user's needs. The content you need to summarize is located in the <chat_history></chat_history> group of xml tags.
+The summary needs to maintain the original language.
+
+User's words are quoted in <user></user>. Your words are quoted in <assistant></assistant> group. Summarization should be limited to 400 tokens.
+`.trim()
 
 const profile : AppCustomizeConfig = {
     helpMessage:
@@ -45,10 +54,10 @@ const profile : AppCustomizeConfig = {
         const body : Record<string, any> = {}
 
         const systemPrompt = ctx.systemPrompt
-        if(ctx.systemPrompt) body["systemInstruction"] = systemPrompt
+        if(ctx.systemPrompt) body["systemInstruction"] = { parts: { text: systemPrompt } }
 
-        const messages = ctx.messages.map(e => ({ role: e.role, parts: [{ text : e.content }] }))
-        messages.push({ role: "user", parts : [{ text : ctx.prompt }] })
+        const messages : Record<string, any> = ctx.historyMessages.map(e => ({ role: e.role, parts: [{ text : e.content }] }))
+        messages.push({ role: "user", parts : [{ text : ctx.userPrompt }] })
 
         body["contents"] = messages
 
@@ -59,12 +68,7 @@ const profile : AppCustomizeConfig = {
         }
     },
 
-    onResponseIncome(line, { dataWriter, chatMemory, timer }) {
-        if (!line) return
-
-        dataWriter(line).then(() => [])
-        timer.tick() && msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
-
+    responseLineTransformer : line => {
         let fields = line.trim().match(/^data:\s+?(.+)/)
         if(!fields) return
         const [, payload] = fields
@@ -78,9 +82,12 @@ const profile : AppCustomizeConfig = {
         const { parts } = content
         if(!parts || parts.length <= 0) return
         const { text } = parts[0]
-        print(text)
-        chatMemory && chatMemory.appendAssistantOut(text)
-    }
+        return { content: text }
+    },
+
+    plugins: [
+        new HistorySummarizer(),
+    ]
 }
 
 Application.launch(profile).then().catch(console.error)

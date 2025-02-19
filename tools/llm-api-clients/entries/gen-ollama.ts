@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import Application, {AppCustomizeConfig} from '../src/application'
 import process from "process";
-import {msg, print} from "../src/commons";
+import HistorySummarizer from "../src/summerizer";
 
 const profile : AppCustomizeConfig = {
     helpMessage:
@@ -47,8 +47,8 @@ const profile : AppCustomizeConfig = {
         const contents : any[] = []
         const systemRoleName = this.getConfig("systemRole") || "system"
         if(ctx.systemPrompt) contents.push({ role: systemRoleName, content: ctx.systemPrompt })
-        contents.push(...ctx.messages)
-        contents.push({ role: "user", content: ctx.prompt })
+        contents.push(...ctx.historyMessages)
+        contents.push({ role: "user", content: ctx.userPrompt })
         body["messages"] = contents
 
         // Parameters
@@ -65,9 +65,7 @@ const profile : AppCustomizeConfig = {
         }
     },
 
-    onResponseIncome(line, { dataWriter, chatMemory, timer }) {
-        if (!line) return
-
+    responseLineTransformer: line => {
         let data
         try {
             data = JSON.parse(line);
@@ -76,18 +74,14 @@ const profile : AppCustomizeConfig = {
             throw new Error(`Invalid JSON in line: ${line}`)
         }
 
-        dataWriter(JSON.stringify(data)).then(() => [])
-
-        if (timer.tick()) msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
-
         const {message, done} = data;
 
-        if (done) return msg("\n\n")
+        if (done) return { info : "\n\n" }
         const {content} = message
-        print(content)
+        return { content }
+    },
 
-        chatMemory && chatMemory.appendAssistantOut(content)
-    }
+    plugins: [ new HistorySummarizer() ]
 }
 
 Application.launch(profile).then().catch(console.error)

@@ -2,7 +2,8 @@
 
 import Application, {AppCustomizeConfig} from "../src/application";
 import process from "process";
-import {msg, print} from "../src/commons";
+import {msg} from "../src/commons";
+import HistorySummarizer from "../src/summerizer";
 
 const profile : AppCustomizeConfig = {
     helpMessage:
@@ -34,7 +35,7 @@ const profile : AppCustomizeConfig = {
 
     argTable: {
         "--out"    : function (c, n) { c.out = n(1) },
-        "--model"  : function (c, n)  { c.model = n(1) },
+        "--model"  : function (c, n) { c.model = n(1) },
         "--server" : function (c, n) { c.serverUrl = n(1) },
         "--memory" : function (c, n) { c.memoryFile = n(1) },
         "--help"   : function () { this.printHelpAndExit(0) },
@@ -56,8 +57,8 @@ const profile : AppCustomizeConfig = {
         const systemRole = this.getConfig("systemRole") || "developer"
         if(systemPrompt) messages.push({ role : systemRole, content : systemPrompt })
 
-        messages.push(...ctx.messages)
-        messages.push({ role: "user", content: ctx.prompt })
+        messages.push(...ctx.historyMessages)
+        messages.push({ role: "user", content: ctx.userPrompt })
         body["messages"] = messages
 
         return {
@@ -68,28 +69,24 @@ const profile : AppCustomizeConfig = {
         }
     },
 
-    onResponseIncome(line, { dataWriter, chatMemory, timer }) {
-        if (!line) return
-
-        dataWriter(line).then(() => [])
-        timer.tick() && msg(`(Context initialize took ${timer.ctxInitTime()}s)\n`)
-
+    responseLineTransformer : line => {
         let fields = line.match(/^data:\s+?(.+)/)
         if(!fields) return
 
         const [, payload] = fields
-        if(payload === "[DONE]") return msg("\n\n")
+        if(payload === "[DONE]") return { info: "\n\n" }
 
         const {choices} = JSON.parse(payload);
         if(choices.length <= 0) return
 
         const { delta } = choices[0]
         if (!delta.content) return
+
         const { content } = delta
-        if (!content) return
-        print(content)
-        chatMemory && chatMemory.appendAssistantOut(delta.content)
-    }
+        return { content }
+    },
+
+    plugins: [ new HistorySummarizer() ]
 }
 
 Application.launch(profile).then().catch(console.error)
