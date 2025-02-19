@@ -68,12 +68,12 @@ export default class Application {
 
         let op: string, i: number = 0
 
-        const inbound = (function (this: Application, size: number) {
+        const inbound = (size: number)  => {
             i += size
             if (i < options.length) return options[i]
             msg("Require value for option: " + op + "\n\n\n")
             this.printHelpAndExit(i)
-        }).bind(this)
+        }
 
         for (i = 0; i < options.length; i++) {
             op = options[i]
