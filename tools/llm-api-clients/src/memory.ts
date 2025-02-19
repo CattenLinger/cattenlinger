@@ -22,7 +22,7 @@ export default class MemoryStorage {
     }
 
     static async create(memoryFile: string) {
-        let memory
+        let memory : Record<string, any> = { messages: [] }
         try {
             msg(`[[ Chat memory: '${memoryFile}' ]]\n`)
             await fs.access(memoryFile)
@@ -33,7 +33,7 @@ export default class MemoryStorage {
 
         }
 
-        return new MemoryStorage(memoryFile, memory.message ? memory.message : [])
+        return new MemoryStorage(memoryFile, memory["messages"] ? memory["messages"] : [])
     }
 
     async saveAsync() {
