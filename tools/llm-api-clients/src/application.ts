@@ -222,9 +222,7 @@ export default class Application {
 
         const {userPrompt, chatMemory, timer, dataWriter} = context
 
-        msg(`<< Question : `)
-        msg(`${userPrompt}\n`)
-        msg(`>> Answer   : `)
+        msg(`<<Q | ${userPrompt}\n| A>> `)
 
         chatMemory && chatMemory.appendUserPrompt(userPrompt!!)
 
