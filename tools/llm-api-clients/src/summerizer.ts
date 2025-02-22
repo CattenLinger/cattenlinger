@@ -90,7 +90,7 @@ export default class HistorySummarizer implements ApplicationPlugin {
     }
 
     async execute(app : Application, context : AppExecuteContext) {
-        if(context.phase !== AppExecutePhase.Post) return // Post phase only
+        if(context.phase !== AppExecutePhase.Finish) return // Finish phase only
 
         await this.onSummarize(app, context)
     }

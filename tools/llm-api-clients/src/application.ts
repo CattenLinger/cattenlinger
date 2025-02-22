@@ -69,7 +69,7 @@ export type AppCustomizeConfig = {
     plugins? : ApplicationPlugin[]
 }
 
-export enum AppExecutePhase { Pre, Post }
+export enum AppExecutePhase { Pre, Post, Finish }
 
 export type AppExecuteContext = {
     /** Data logger function */
@@ -246,6 +246,9 @@ export default class Application {
 
         // Update phase and call plugins
         context.phase = AppExecutePhase.Post
+        if(plugins) await Promise.all(plugins.map(plugin => plugin.execute(app, context)))
+
+        context.phase = AppExecutePhase.Finish
         if(plugins) await Promise.all(plugins.map(plugin => plugin.execute(app, context)))
 
         await GlobalPostHook.execute()
