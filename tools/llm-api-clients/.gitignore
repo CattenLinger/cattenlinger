@@ -5,5 +5,7 @@ prompt.txt
 .idea
 *.chatmem.json
 
+/playground
+
 /node_modules
 /yarn.lock
