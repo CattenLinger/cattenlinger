@@ -25,15 +25,6 @@ echo "Target platform  : $PLATFORM"
 echo "Install Location : $CLASH_HOME"
 
 ################################
-# Repo & Version Info
-################################
-VERSION_LIST="$_tempfile/versions"
-GITHUB_REPO="MetaCubeX/mihomo"
-VERSION_LIST_ENDPOINT="https://api.github.com/repos/$GITHUB_REPO/releases"
-[ -z "$CLASH_VERSION" ] || VERSION_LIST_ENDPOINT="$VERSION_LIST_ENDPOINT/tags/$CLASH_VERSION"
-[ -z "$CLASH_VERSION" ] || echo "Using version: $CLASH_VERSION"
-
-################################
 _tempfile="/tmp/tmp-$(date +%s%N)"
 _workdir="$(realpath "$CLASH_HOME")"
 _datadir="$_workdir/data"
@@ -61,8 +52,16 @@ cleanup_exit() {
 trap "cleanup_exit" SIGINT SIGTERM EXIT
 
 setup_start
-
 echo "Will install clash into '$_workdir'."
+
+################################
+# Repo & Version Info
+################################
+VERSION_LIST="$_tempfile/versions"
+GITHUB_REPO="MetaCubeX/mihomo"
+VERSION_LIST_ENDPOINT="https://api.github.com/repos/$GITHUB_REPO/releases"
+[ -z "$CLASH_VERSION" ] || VERSION_LIST_ENDPOINT="$VERSION_LIST_ENDPOINT/tags/$CLASH_VERSION"
+[ -z "$CLASH_VERSION" ] || echo "Using version: $CLASH_VERSION"
 
 CURL=(curl -L "$CURL_OPT")
 (echo "$@" | grep '\-v' > /dev/null 2>&1) || CURL=(${CURL[@]} "-#")
