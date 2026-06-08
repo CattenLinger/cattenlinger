@@ -17,12 +17,13 @@ require gzip
 # Install Target
 ################################
 PLATFORM="$PLATFORM"
-CLASH_HOME="$CLASH_HOME"
-CLASH_VERSION="$CLASH_VERSION"
 [ -n "$PLATFORM"   ] || PLATFORM="linux-amd64"
-[ -n "$CLASH_HOME" ] || CLASH_HOME="$(pwd)"
 echo "Target platform  : $PLATFORM"
-echo "Install Location : $CLASH_HOME"
+
+CLASH_HOME="$CLASH_HOME"
+[ -n "$CLASH_HOME" ] || CLASH_HOME="$(pwd)"
+
+CLASH_VERSION="$CLASH_VERSION"
 
 ################################
 _tempfile="/tmp/tmp-$(date +%s%N)"
@@ -32,9 +33,7 @@ _datadir="$_workdir/data"
 setup_start() {
     __OLD_IFS=$IFS
     IFS=$'\n'
-    [ -d "$_tempfile" ] || mkdir -p "$_tempfile"
-    [ -d "$_datadir" ] || mkdir -p "$_datadir"
-    [ -d "$_workdir/bin" ] || mkdir -p "$_workdir/bin"
+    [ -d "$_tempfile"    ] || mkdir -p "$_tempfile"
 }
 
 FINISHED='false'
@@ -98,7 +97,7 @@ cat "$VERSION_LIST" | jq '.assets | map(select(.name | contains("'"$PLATFORM"'")
 
 SELECTED_VERSION=""
 FILTERED_VERSION_LIST_LENGTH=$(cat $FILTERED_VERSION_LIST | jq 'length')
-if [ "$FILTERED_VERSION_LIST_LENGTH" -gt '1' ] then
+if [ "$FILTERED_VERSION_LIST_LENGTH" -gt '1' ]; then
     __selection=""
     __number='^[0-9]+$'
     while : ; do
@@ -125,6 +124,8 @@ fetch "$SELECTED_VERSION" -o "$_tempfile/clash.gz"
 ################################
 echo "Installing..."
 
+[ -d "$_datadir"     ] || mkdir -p "$_datadir"
+[ -d "$_workdir/bin" ] || mkdir -p "$_workdir/bin"
 gzip -vcd "$_tempfile/clash.gz" > "$_workdir/bin/clash"
 echo "Extracted Clash to target directory."
 
